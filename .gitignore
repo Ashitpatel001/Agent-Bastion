@@ -1,0 +1,39 @@
+# Environment
+.env
+.venv/
+venv/
+ENV/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Dashboard dynamically generated evidence
+src/security/dashboard/security_events.jsonl
+src/security/dashboard/pids.json
+src/security/dashboard/kill.flag
+src/security/dashboard/diffs/*
+!src/security/dashboard/diffs/.gitkeep
+src/security/dashboard/screenshots/*
+!src/security/dashboard/screenshots/.gitkeep
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# Production database
+*.db
+
+# Ignore Markdown files except README
+*.md
+!README.md

@@ -1,0 +1,250 @@
+# ============================================================
+# ABSs v2.0 — Multi-Tenant AI Browser Security Proxy
+# Production Docker Compose Stack
+#
+# Usage:
+#   docker compose up --build              # Start all core services
+#   docker compose --profile monitoring up  # Include Flower dashboard
+#   docker compose --profile dev up         # Include attack test server
+#   docker compose down -v                  # Teardown + remove volumes
+# ============================================================
+
+services:
+
+  # ── Infrastructure ─────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: abs-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - abs-backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: abs-redis
+    command: >
+      redis-server
+        --appendonly yes
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --save 60 1000
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - abs-backend
+
+  # ── Application Services ───────────────────────────────────
+
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps
+    container_name: abs-db-init
+    command: ["python", "init_db.py"]
+    environment:
+      POSTGRES_HOST: postgres
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - abs-backend
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: abs-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - abs-backend
+      - abs-frontend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  worker-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker-agent
+    container_name: abs-worker-agent
+    environment:
+      POSTGRES_HOST: postgres
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    env_file:
+      - .env
+    volumes:
+      - agent_screenshots:/app/src/security/dashboard/screenshots
+      - agent_diffs:/app/src/security/dashboard/diffs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - abs-backend
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    # Chromium needs shared memory and relaxed seccomp
+    security_opt:
+      - seccomp:unconfined
+    shm_size: '512m'
+
+  worker-xai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker-xai
+    container_name: abs-worker-xai
+    environment:
+      POSTGRES_HOST: postgres
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - abs-backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+    container_name: abs-dashboard
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    env_file:
+      - .env
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - abs-frontend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ── Optional: Monitoring ───────────────────────────────────
+
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: flower
+    container_name: abs-flower
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - abs-backend
+      - abs-frontend
+    profiles:
+      - monitoring
+
+  # ── Optional: Dev/Test Attack Server ───────────────────────
+
+  attack-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: abs-attack-server
+    command: ["python", "attack_server.py"]
+    ports:
+      - "${ATTACK_PORT:-5001}:5001"
+    restart: unless-stopped
+    networks:
+      - abs-backend
+    profiles:
+      - dev
+
+# ── Volumes ──────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  agent_screenshots:
+    driver: local
+  agent_diffs:
+    driver: local
+
+# ── Networks ─────────────────────────────────────────────────
+networks:
+  abs-backend:
+    driver: bridge
+    internal: true     # No external access — services communicate internally
+  abs-frontend:
+    driver: bridge     # Exposed to host for port mapping

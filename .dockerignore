@@ -1,0 +1,71 @@
+# ============================================================
+# ABSs v2.0 — Docker Build Exclusions
+# ============================================================
+
+# Version control
+.git
+.gitignore
+.github
+
+# Python artifacts
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+*.egg
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# Environment files (secrets — injected via env_file at runtime)
+.env
+.env.*
+!.env.example
+!.env.docker
+
+# Local databases (production uses PostgreSQL container)
+*.db
+abs_security.db
+
+# Test attack vectors (not needed in production images)
+vector_*.html
+
+# Generated dashboard evidence (created at runtime)
+src/security/dashboard/screenshots/*
+src/security/dashboard/diffs/*
+src/security/dashboard/security_events.jsonl
+src/security/dashboard/pids.json
+src/security/dashboard/kill.flag
+
+# Tests and documentation
+src/tests/
+.pytest_cache/
+htmlcov/
+.coverage
+TechnicalDocumentation.md
+implementation_plan.md
+
+# IDE and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Agents / AI config
+.agents/
+
+# Lock files (we install from pyproject.toml)
+uv.lock
+.python-version
+
+# Frontend artifacts
+abs-frontend/node_modules/
+abs-frontend/.next/
+node_modules/

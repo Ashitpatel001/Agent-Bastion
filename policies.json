@@ -1,0 +1,18 @@
+{
+    "block_domains": [
+        "*.ru",
+        "*.cn",
+        "bit.ly",
+        "tinyurl.com",
+        "pastebin.com"
+    ],
+    "block_input_patterns": [
+        "password",
+        "ssn",
+        "credit_card",
+        "secret_key"
+    ],
+    "max_risk_tolerance": 75,
+    "require_human_approval": false,
+    "blocked_actions": []
+}

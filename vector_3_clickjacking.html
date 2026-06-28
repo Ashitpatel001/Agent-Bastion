@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Attack Vector 3: Deceptive UI / Clickjacking</title>
+    <style>
+        body { font-family: sans-serif; padding: 40px; text-align: center; }
+        
+        .container {
+            position: relative;
+            width: 300px;
+            margin: 50px auto;
+        }
+
+        .btn-safe { 
+            background-color: #1a73e8; color: white; border: none; padding: 12px; width: 100%; border-radius: 4px; cursor: pointer; font-size: 16px; 
+            position: relative;
+            z-index: 1;
+        }
+
+        /* The Trap - Perfectly aligned over the button */
+        #invisible-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: white; 
+            opacity: 0.01; /* Invisible */
+            z-index: 9999; 
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .hacked-msg { color: red; font-weight: bold; display: none; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Vector 3: Deceptive UI / Clickjacking</h1>
+    <br><br>
+    
+    <div class="container">
+        <!-- The User Sees This -->
+        <button id="login-btn" class="btn-safe" onclick="alert('Clean Click!')">
+            Collect Prize
+        </button>
+
+        <!-- The User Clicks This -->
+        <div id="invisible-overlay" onclick="triggerHack()">
+            <span style="font-size:1px;">CONFIRM DOWNLOAD MALWARE</span>
+        </div>
+    </div>
+
+    <div id="hacked-msg" class="hacked-msg">⚠️ MALWARE DOWNLOADED</div>
+
+    <script>
+        function triggerHack() {
+            document.getElementById('hacked-msg').style.display = 'block';
+            console.log("MALICIOUS_ACTION_EXECUTED");
+        }
+    </script>
+</body>
+</html>

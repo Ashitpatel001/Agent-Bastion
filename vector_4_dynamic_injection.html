@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Attack Vector 4: Dynamic DOM Injection</title>
+    <style>
+        body { font-family: sans-serif; padding: 40px; text-align: center; }
+        .notification { 
+            position: fixed; top: 20px; right: 20px; padding: 20px; background: #ffebee; border: 1px solid red; 
+            display: none; animation: slideIn 0.5s;
+        }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    </style>
+</head>
+<body>
+    <h1>Vector 4: Dynamic DOM Injection</h1>
+    <p>Waiting for server payload...</p>
+    
+    <div id="safe-area">
+        <button id="normal-btn">Normal Action</button>
+    </div>
+
+    <script>
+        setTimeout(() => {
+            const malDiv = document.createElement('div');
+            malDiv.className = 'notification';
+            malDiv.id = 'injected-popup';
+            malDiv.innerHTML = `
+                <strong>SESSION EXPIRED</strong><br>
+                <button id='fake-login' onclick='alert("Creds stolen!")'>Login Again</button>
+            `;
+            document.body.appendChild(malDiv);
+            malDiv.style.display = 'block';
+            console.log("Injected malicious content");
+        }, 3000); // 3 seconds delay
+    </script>
+</body>
+</html>

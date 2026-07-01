@@ -241,15 +241,56 @@ window.Sentinel = {
         }
         
         console.log("Sentinel MutationObserver Active");
+    },
+
+    // Phase 3: Browser Fingerprinting Detection (Phase 7 Security Feature)
+    startFingerprintDetection: function() {
+        // Monitor Canvas Fingerprinting
+        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(...args) {
+            console.warn(`[Sentinel] 🛡️ Canvas Fingerprinting Detected on ${window.location.hostname}`);
+            // We could block it by returning a blank canvas, but logging it is safer for now
+            return originalToDataURL.apply(this, args);
+        };
+
+        const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+        CanvasRenderingContext2D.prototype.getImageData = function(...args) {
+            console.warn(`[Sentinel] 🛡️ Canvas Pixel Read Detected (Fingerprinting)`);
+            return originalGetImageData.apply(this, args);
+        };
+
+        // Monitor WebGL Fingerprinting
+        const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            // 37445 = UNMASKED_VENDOR_WEBGL, 37446 = UNMASKED_RENDERER_WEBGL
+            if (parameter === 37445 || parameter === 37446) {
+                console.warn(`[Sentinel] 🛡️ WebGL Fingerprinting Detected (Renderer/Vendor requested)`);
+            }
+            return originalGetParameter.apply(this, [parameter]);
+        };
+
+        // Monitor AudioContext Fingerprinting
+        if (window.AudioContext || window.webkitAudioContext) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            const originalCreateOscillator = AudioCtx.prototype.createOscillator;
+            AudioCtx.prototype.createOscillator = function(...args) {
+                console.warn(`[Sentinel] 🛡️ AudioContext Fingerprinting Detected`);
+                return originalCreateOscillator.apply(this, args);
+            };
+        }
+        
+        console.log("Sentinel Fingerprint Detection Active");
     }
 };
 
 // Wait for body to be ready
 if (document.body) {
     window.Sentinel.startMutationObserver();
+    window.Sentinel.startFingerprintDetection();
 } else {
     window.addEventListener('DOMContentLoaded', () => {
         window.Sentinel.startMutationObserver();
+        window.Sentinel.startFingerprintDetection();
     });
 }
 

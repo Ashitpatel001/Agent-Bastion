@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/sidebar';
 import { NAVIGATION_ITEMS, APP_NAME } from '@/lib/constants';
 import { useAppStore } from '@/store/app-store';
-import { ShieldCheck, ShieldAlert, LayoutDashboard, Terminal, FileCode2, KeyRound, Settings, LogOut } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, LayoutDashboard, Terminal, FileCode2, KeyRound, Settings, LogOut, Activity, BrainCircuit } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 
@@ -26,6 +26,9 @@ const ICON_MAP: Record<string, React.ElementType> = {
   FileCode2,
   KeyRound,
   Settings,
+  Activity,
+  BrainCircuit,
+  ShieldCheck,
 };
 
 export function SidebarNav() {
@@ -61,7 +64,8 @@ export function SidebarNav() {
         <SidebarMenu className="px-2 mt-4 gap-1">
           {NAVIGATION_ITEMS.map((item) => {
             const Icon = ICON_MAP[item.icon] || LayoutDashboard;
-            const isActive = pathname?.startsWith(item.href) || false;
+            const itemHref = item.href || item.url || '#';
+            const isActive = pathname?.startsWith(itemHref) || false;
             
             return (
               <SidebarMenuItem key={item.title}>
@@ -69,7 +73,7 @@ export function SidebarNav() {
                   isActive={isActive} 
                   tooltip={item.title}
                   render={
-                    <Link href={item.href} className="flex items-center justify-between w-full">
+                    <Link href={itemHref} className="flex items-center justify-between w-full">
                       <div className="flex items-center gap-3">
                         <Icon className="size-4" />
                         <span>{item.title}</span>

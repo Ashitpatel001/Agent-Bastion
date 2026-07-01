@@ -97,6 +97,27 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     roles: [UserRole.OWNER, UserRole.ADMIN, UserRole.SECURITY_ANALYST],
   },
   {
+    title: 'Live Feed',
+    url: '/dashboard/live-feed',
+    href: '/dashboard/live-feed',
+    icon: 'Activity',
+    roles: [UserRole.OWNER, UserRole.ADMIN, UserRole.SECURITY_ANALYST, UserRole.DEVELOPER, UserRole.VIEWER],
+  },
+  {
+    title: 'XAI Explanations',
+    url: '/dashboard/xai',
+    href: '/dashboard/xai',
+    icon: 'BrainCircuit',
+    roles: [UserRole.OWNER, UserRole.ADMIN, UserRole.SECURITY_ANALYST, UserRole.DEVELOPER, UserRole.VIEWER],
+  },
+  {
+    title: 'Proxy Firewall',
+    url: '/dashboard/firewall',
+    href: '/dashboard/firewall',
+    icon: 'ShieldCheck',
+    roles: [UserRole.OWNER, UserRole.ADMIN, UserRole.SECURITY_ANALYST, UserRole.DEVELOPER, UserRole.VIEWER],
+  },
+  {
     title: 'Policies',
     href: '/dashboard/policies',
     icon: 'FileCode2',

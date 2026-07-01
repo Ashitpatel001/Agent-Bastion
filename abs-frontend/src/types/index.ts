@@ -139,8 +139,121 @@ export interface ApiError {
 
 export interface NavigationItem {
   title: string;
-  href: string;
+  href?: string;
+  url?: string;
   icon: string;
   badge?: string;
-  roles: UserRole[];
+  roles?: UserRole[];
 }
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
+  full_name?: string;
+}
+
+export interface Incident {
+  id: string;
+  tenant_id: string;
+  title: string;
+  description?: string;
+  severity: string;
+  status: string;
+  risk_score: number;
+  mitre_ids: string[];
+  created_at: string;
+}
+
+export interface IncidentListResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: Incident[];
+}
+
+export interface TenantSettings {
+  id?: string;
+  tenant_id?: string;
+  notification_email?: string;
+  webhook_url?: string;
+  timezone: string;
+  data_retention_days: number;
+  settings_json: Record<string, unknown>;
+}
+
+export interface TimeSeriesDataPoint {
+  date: string;
+  total: number;
+  safe: number;
+  blocked: number;
+  avg_risk: number;
+}
+
+export interface TimeSeriesResponse {
+  days: number;
+  data: TimeSeriesDataPoint[];
+}
+
+export interface XaiAuditLog {
+  id: number;
+  event_type: string;
+  url: string;
+  risk_level: RiskLevel;
+  risk_score: number;
+  action_taken: ActionTaken;
+  xai_explanation: string | null;
+  xai_pending: boolean;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface XaiAuditLogListResponse {
+  items: XaiAuditLog[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ReputationCheckRequest {
+  url: string;
+}
+
+export interface ReputationCheckResponse {
+  url: string;
+  domain: string;
+  trust_level: string;
+  is_safe: boolean;
+  details: string;
+}
+
+export interface SystemHealthResponse {
+  status: string;
+  service: string;
+  version: string;
+  uptime_seconds: number;
+  components: Record<string, { status: string; error?: string }>;
+}
+
+export interface SecurityEvent {
+  id: number;
+  tenant_id: number;
+  event_type: string;
+  source: string;
+  severity: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SecurityEventListResponse {
+  items: SecurityEvent[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+

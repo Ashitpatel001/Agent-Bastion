@@ -369,8 +369,41 @@ class SecureAgent(Agent):
     async def _intercept_network(self, route, request):
         """
         Network-level security: Policy Enforcement, DLP honey token
-        detection, and cross-origin blocking.
+        detection, cross-origin blocking, redirect analysis, and download inspection.
         """
+        # --- Download Inspection & Redirects ---
+        # Block common executable extensions
+        lower_url = request.url.lower()
+        if request.resource_type == "document" and any(lower_url.endswith(ext) for ext in [".exe", ".msi", ".bat", ".cmd", ".sh", ".zip", ".tar.gz", ".dll", ".scr"]):
+            logger.warning("🚫 BLOCKED DOWNLOAD ATTEMPT: %s", request.url)
+            await self._log_security_event(
+                event_type="MALICIOUS_DOWNLOAD_BLOCKED",
+                url=request.url,
+                details=f"Blocked attempt to download potentially dangerous file type.",
+                risk_level="HIGH",
+                risk_score=90,
+                action="BLOCKED",
+            )
+            await route.abort()
+            return
+            
+        # Detect redirects via navigation requests
+        if request.is_navigation_request() and request.redirected_from:
+            logger.info("🔄 REDIRECT DETECTED: %s -> %s", request.redirected_from.url, request.url)
+            # If redirected to a hostile domain, block it
+            if self.security_manager.check_reputation(request.url) is False:
+                logger.warning("🚫 BLOCKED HOSTILE REDIRECT: %s", request.url)
+                await self._log_security_event(
+                    event_type="MALICIOUS_REDIRECT_BLOCKED",
+                    url=request.url,
+                    details=f"Blocked automatic redirect to hostile domain from {request.redirected_from.url}",
+                    risk_level="CRITICAL",
+                    risk_score=95,
+                    action="BLOCKED",
+                )
+                await route.abort()
+                return
+
         # --- Policy Enforcement (Domains) ---
         if request.resource_type in [
             "document", "iframe", "fetch", "xhr"
@@ -701,6 +734,29 @@ class SecureAgent(Agent):
             )
             if not approved_actions:
                 return blocked_results
+
+        # --- LLM Output / Tool Call Validation (Phase 7) ---
+        for act in approved_actions:
+            # Inspect the raw tool call payload for leakage or bad outputs
+            act_dump = act.model_dump(exclude_none=True)
+            for k, v in act_dump.items():
+                if isinstance(v, dict) and "text" in v:
+                    text_val = v["text"]
+                    if self.HONEY_TOKEN in text_val:
+                        logger.critical("🛑 Sentinel: LLM attempted to output Honey Token in action!")
+                        blocked_results.append(
+                            ActionResult(error="Security Block: Output Validation Failed (DLP)")
+                        )
+                        approved_actions.remove(act)
+                        await self._log_security_event(
+                            event_type="LLM_OUTPUT_LEAK_PREVENTED",
+                            details="Blocked LLM from outputting honey token in tool call.",
+                            risk_level="CRITICAL", risk_score=100, action="BLOCKED"
+                        )
+                        break
+
+        if not approved_actions:
+            return blocked_results
 
         return await super().multi_act(approved_actions) + blocked_results
 

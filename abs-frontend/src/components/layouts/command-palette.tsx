@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/command';
 import { useAppStore } from '@/store/app-store';
 import { NAVIGATION_ITEMS } from '@/lib/constants';
-import { LayoutDashboard, FileCode2, ShieldAlert, Terminal, Settings, KeyRound } from 'lucide-react';
+import { LayoutDashboard, FileCode2, ShieldAlert, Terminal, Settings, KeyRound, Activity, BrainCircuit, ShieldCheck } from 'lucide-react';
 
 const ICON_MAP: Record<string, React.ElementType> = {
   LayoutDashboard,
@@ -22,6 +22,9 @@ const ICON_MAP: Record<string, React.ElementType> = {
   FileCode2,
   KeyRound,
   Settings,
+  Activity,
+  BrainCircuit,
+  ShieldCheck,
 };
 
 export function CommandPalette() {
@@ -55,11 +58,12 @@ export function CommandPalette() {
         <CommandGroup heading="Navigation">
           {NAVIGATION_ITEMS.map((item) => {
             const Icon = ICON_MAP[item.icon] || LayoutDashboard;
+            const targetUrl = item.href || item.url || '#';
             return (
               <CommandItem
-                key={item.href}
+                key={targetUrl}
                 value={item.title}
-                onSelect={() => runCommand(() => router.push(item.href))}
+                onSelect={() => runCommand(() => router.push(targetUrl))}
               >
                 <Icon className="mr-2 h-4 w-4" />
                 <span>{item.title}</span>
@@ -76,6 +80,14 @@ export function CommandPalette() {
           <CommandItem onSelect={() => runCommand(() => router.push('/dashboard/policies'))}>
             <FileCode2 className="mr-2 h-4 w-4" />
             <span>Update Security Policy</span>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push('/dashboard/firewall'))}>
+            <ShieldCheck className="mr-2 h-4 w-4" />
+            <span>Check Domain Reputation</span>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push('/dashboard/live-feed'))}>
+            <Activity className="mr-2 h-4 w-4" />
+            <span>Monitor Live Security Feed</span>
           </CommandItem>
         </CommandGroup>
       </CommandList>

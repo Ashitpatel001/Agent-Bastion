@@ -13,11 +13,17 @@ class ReputationManager:
 
     def get_domain(self, url: str) -> str:
         try:
+            if "://" not in url and not url.startswith("//"):
+                url = "//" + url
             parsed = urlparse(url)
             # Remove port if present and get domain
             return parsed.netloc.split(':')[0] 
         except:
             return ""
+
+    def check(self, url: str) -> bool:
+        """Alias for check_reputation."""
+        return self.check_reputation(url)
 
     def is_cloud_provider(self, domain: str) -> bool:
         for provider in SecurityConfig.CLOUD_PROVIDERS:

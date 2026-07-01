@@ -51,9 +51,14 @@ async def create_schema(drop_first: bool = False) -> None:
         logger.info("Creating tables and ENUM types (checkfirst=True)...")
         await conn.run_sync(Base.metadata.create_all)
 
+    # Seed default admin user, tenant, SOC engineers, WAF rules, and telemetry
+    from db.database import seed_enterprise_production_data
+    await seed_enterprise_production_data()
+
     # Dispose the engine so the script doesn't hold connections open.
     await engine.dispose()
-    logger.info("✅ Database schema initialized successfully.")
+    logger.info("✅ Database schema and enterprise telemetry initialized successfully.")
+
 
 
 def main() -> None:

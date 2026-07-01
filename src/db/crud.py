@@ -509,3 +509,92 @@ async def get_audit_stats(
         "average_risk_score": round(float(avg_risk), 1),
         "top_event_types": top_event_types,
     }
+
+
+# ── Analytics ────────────────────────────────────
+async def get_time_series_stats(
+    db: AsyncSession,
+    tenant_id: str,
+    days: int = 30
+) -> list[dict]:
+    """Get daily counts of safe vs blocked actions for chart data."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, case, cast, Date, select
+    from db.models import AuditLog
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    results = await db.execute(
+        select(
+            cast(AuditLog.created_at, Date).label('date'),
+            func.count().label('total'),
+            func.count(case((AuditLog.action_taken.in_(['ALLOWED', 'MONITOR']), 1))).label('safe'),
+            func.count(case((AuditLog.action_taken.in_(['BLOCKED', 'BLOCK_AND_ESCALATE', 'SANITIZED']), 1))).label('blocked'),
+            func.avg(AuditLog.risk_score).label('avg_risk')
+        ).where(
+            AuditLog.tenant_id == tenant_id,
+            AuditLog.created_at >= cutoff
+        ).group_by(
+            cast(AuditLog.created_at, Date)
+        ).order_by(
+            cast(AuditLog.created_at, Date)
+        )
+    )
+    rows = results.all()
+    return [
+        {
+            'date': row.date.isoformat() if hasattr(row.date, 'isoformat') else str(row.date) if row.date is not None else None,
+            'total': row.total,
+            'safe': row.safe,
+            'blocked': row.blocked,
+            'avg_risk': round(float(row.avg_risk or 0), 1)
+        }
+        for row in rows
+    ]
+
+
+async def get_recent_incidents(
+    db: AsyncSession,
+    tenant_id: str,
+    limit: int = 10
+) -> list:
+    """Get recent audit log entries for live feed."""
+    from sqlalchemy import select
+    from db.models import AuditLog
+    result = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.tenant_id == tenant_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_xai_audit_logs(
+    db: AsyncSession,
+    tenant_id: str,
+    page: int = 1,
+    page_size: int = 20,
+    pending_only: bool = False
+) -> tuple[list, int]:
+    """Get audit logs with XAI explanations."""
+    from sqlalchemy import select, func
+    from db.models import AuditLog
+    query = select(AuditLog).where(AuditLog.tenant_id == tenant_id)
+    count_query = select(func.count()).select_from(AuditLog).where(AuditLog.tenant_id == tenant_id)
+
+    if pending_only:
+        query = query.where(AuditLog.xai_pending == True)
+        count_query = count_query.where(AuditLog.xai_pending == True)
+    else:
+        query = query.where(AuditLog.xai_explanation.isnot(None))
+        count_query = count_query.where(AuditLog.xai_explanation.isnot(None))
+
+    query = query.order_by(AuditLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+
+    result = await db.execute(query)
+    logs = list(result.scalars().all())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    return logs, total
+

@@ -66,9 +66,13 @@ services:
     container_name: abs-db-init
     command: ["python", "init_db.py"]
     environment:
+      PYTHONPATH: /app/src:/app
       POSTGRES_HOST: postgres
     env_file:
       - .env
+    volumes:
+      - ./src:/app/src
+      - ./init_db.py:/app/init_db.py
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,14 +85,18 @@ services:
       dockerfile: Dockerfile
       target: api
     container_name: abs-api
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
+      PYTHONPATH: /app/src:/app
       POSTGRES_HOST: postgres
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     env_file:
       - .env
+    volumes:
+      - ./src:/app/src
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,12 +122,14 @@ services:
       target: worker-agent
     container_name: abs-worker-agent
     environment:
+      PYTHONPATH: /app/src:/app
       POSTGRES_HOST: postgres
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     env_file:
       - .env
     volumes:
+      - ./src:/app/src
       - agent_screenshots:/app/src/security/dashboard/screenshots
       - agent_diffs:/app/src/security/dashboard/diffs
     depends_on:
@@ -140,7 +150,7 @@ services:
     security_opt:
       - seccomp:unconfined
     shm_size: '512m'
-
+    
   worker-xai:
     build:
       context: .
@@ -148,11 +158,14 @@ services:
       target: worker-xai
     container_name: abs-worker-xai
     environment:
+      PYTHONPATH: /app/src:/app
       POSTGRES_HOST: postgres
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     env_file:
       - .env
+    volumes:
+      - ./src:/app/src
     depends_on:
       postgres:
         condition: service_healthy
@@ -168,27 +181,27 @@ services:
         reservations:
           memory: 128M
 
-  dashboard:
+
+  frontend:
     build:
-      context: .
+      context: ./abs-frontend
       dockerfile: Dockerfile
-      target: dashboard
-    container_name: abs-dashboard
+      target: dev
+    container_name: abs-frontend
     ports:
-      - "${DASHBOARD_PORT:-8501}:8501"
-    env_file:
-      - .env
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./abs-frontend:/app
+      - /app/node_modules
+      - /app/.next
     depends_on:
       - api
     restart: unless-stopped
     networks:
       - abs-frontend
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
+
 
   # ── Optional: Monitoring ───────────────────────────────────
 
@@ -201,6 +214,7 @@ services:
     ports:
       - "${FLOWER_PORT:-5555}:5555"
     environment:
+      PYTHONPATH: /app/src:/app
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     depends_on:
@@ -224,6 +238,8 @@ services:
     command: ["python", "attack_server.py"]
     ports:
       - "${ATTACK_PORT:-5001}:5001"
+    environment:
+      PYTHONPATH: /app/src:/app
     restart: unless-stopped
     networks:
       - abs-backend

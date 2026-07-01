@@ -16,7 +16,7 @@ Naming conventions:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
@@ -228,3 +228,446 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str
     detail: Optional[str] = None
+
+
+# ============================================================================
+# Auth & Token Schemas
+# ============================================================================
+
+class Token(BaseModel):
+    """OAuth2 JWT Token response."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    tenant_id: Optional[str] = None
+    tenant_name: Optional[str] = None
+    user: Optional[Any] = None
+
+
+class TokenPayload(BaseModel):
+    """Payload stored in the JWT."""
+    sub: Optional[str] = None
+    exp: Optional[int] = None
+    tenant_id: Optional[str] = None
+    role: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    """Login credentials."""
+    email: EmailStr
+    password: str
+
+
+class PasswordChangeRequest(BaseModel):
+    """Password change credentials."""
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+# ============================================================================
+# User Schemas
+# ============================================================================
+
+class UserCreate(BaseModel):
+    """Request body for creating a user within a tenant."""
+    email: EmailStr = Field(..., examples=["analyst@acme.com"])
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str = Field(..., min_length=2, max_length=255, examples=["Jane Doe"])
+    role: str = Field(default="VIEWER", examples=["ADMIN"])
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class UserUpdate(BaseModel):
+    """PATCH body for updating a user."""
+    full_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserResponse(BaseModel):
+    """User info returned to the client. Never exposes the password hash."""
+    id: str
+    tenant_id: str
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    last_login_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserListResponse(BaseModel):
+    """Paginated list of users."""
+    total: int
+    page: int
+    page_size: int
+    items: List[UserResponse]
+
+
+# ============================================================================
+# Organization Schemas
+# ============================================================================
+
+class OrganizationCreate(BaseModel):
+    """Request body for creating an organization."""
+    name: str = Field(..., min_length=2, max_length=255, examples=["Acme Security"])
+    slug: str = Field(..., min_length=2, max_length=255, pattern=r"^[a-z0-9-]+$", examples=["acme-security"])
+    description: Optional[str] = None
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class OrganizationUpdate(BaseModel):
+    """PATCH body for updating an organization."""
+    name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    description: Optional[str] = None
+
+
+class OrganizationResponse(BaseModel):
+    """Organization info returned to the client."""
+    id: str
+    name: str
+    slug: str
+    description: Optional[str]
+    owner_tenant_id: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OrganizationListResponse(BaseModel):
+    """Paginated list of organizations."""
+    total: int
+    page: int
+    page_size: int
+    items: List[OrganizationResponse]
+
+
+# ============================================================================
+# API Key Schemas
+# ============================================================================
+
+class APIKeyCreate(BaseModel):
+    """Request body for creating a new API key."""
+    name: str = Field(..., min_length=2, max_length=255, examples=["Production Key"])
+    scopes: List[str] = Field(default_factory=lambda: ["*"], examples=[["agents:read", "agents:write"]])
+    expires_in_days: Optional[int] = Field(default=None, ge=1, le=365)
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class APIKeyResponse(BaseModel):
+    """API key metadata returned to the client."""
+    id: str
+    tenant_id: str
+    user_id: Optional[str]
+    name: str
+    key_prefix: str
+    scopes: List[str]
+    is_active: bool
+    expires_at: Optional[datetime]
+    last_used_at: Optional[datetime]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class APIKeyCreateResponse(APIKeyResponse):
+    """Returned ONLY on key creation. Includes the raw key exactly once."""
+    raw_key: str = Field(
+        ...,
+        description="Full API key. Store securely — it cannot be retrieved again.",
+    )
+
+
+class APIKeyListResponse(BaseModel):
+    """Paginated list of API keys."""
+    total: int
+    page: int
+    page_size: int
+    items: List[APIKeyResponse]
+
+
+# ============================================================================
+# Incident Schemas
+# ============================================================================
+
+class IncidentCreate(BaseModel):
+    """Request body for creating a security incident."""
+    title: str = Field(..., min_length=5, max_length=500, examples=["Prompt injection detected on agent-7"])
+    description: Optional[str] = None
+    severity: str = Field(default="MEDIUM", examples=["HIGH"])
+    session_id: Optional[str] = None
+    mitre_ids: List[str] = Field(default_factory=list, examples=[["T1566", "T1048"]])
+    labels: List[str] = Field(default_factory=list, examples=[["urgent", "investigated"]])
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class IncidentUpdate(BaseModel):
+    """PATCH body for updating an incident."""
+    title: Optional[str] = Field(default=None, min_length=5, max_length=500)
+    description: Optional[str] = None
+    severity: Optional[str] = None
+    status: Optional[str] = None
+    assigned_to: Optional[str] = None
+    resolution: Optional[str] = None
+    labels: Optional[List[str]] = None
+
+
+class IncidentResponse(BaseModel):
+    """Incident info returned to the client."""
+    id: str
+    tenant_id: str
+    session_id: Optional[str]
+    title: str
+    description: Optional[str]
+    severity: str
+    status: str
+    risk_score: int
+    mitre_ids: List[str]
+    assigned_to: Optional[str]
+    resolution: Optional[str]
+    labels: List[str]
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: Optional[datetime]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentListResponse(BaseModel):
+    """Paginated list of incidents."""
+    total: int
+    page: int
+    page_size: int
+    items: List[IncidentResponse]
+
+
+class IncidentCommentCreate(BaseModel):
+    """Request body for adding a comment to an incident."""
+    content: str = Field(..., min_length=1, max_length=4096)
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class IncidentCommentResponse(BaseModel):
+    """Incident comment returned to the client."""
+    id: str
+    incident_id: str
+    user_id: Optional[str]
+    content: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentTimelineResponse(BaseModel):
+    """Incident timeline entry returned to the client."""
+    id: str
+    incident_id: str
+    event_type: str
+    description: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# Browser Session Schemas
+# ============================================================================
+
+class BrowserSessionResponse(BaseModel):
+    """Browser session info returned to the client."""
+    id: str
+    tenant_id: str
+    agent_session_id: Optional[str]
+    browser_type: str
+    url: Optional[str]
+    status: str
+    pages_visited: int
+    actions_performed: int
+    started_at: datetime
+    ended_at: Optional[datetime]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BrowserSessionListResponse(BaseModel):
+    """Paginated list of browser sessions."""
+    total: int
+    page: int
+    page_size: int
+    items: List[BrowserSessionResponse]
+
+
+# ============================================================================
+# Security Event Schemas
+# ============================================================================
+
+class SecurityEventResponse(BaseModel):
+    """Security event returned to the client."""
+    id: str
+    tenant_id: str
+    session_id: Optional[str]
+    event_type: str
+    severity: str
+    source: Optional[str]
+    details: Optional[str]
+    raw_data: Optional[dict]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SecurityEventListResponse(BaseModel):
+    """Paginated list of security events."""
+    total: int
+    page: int
+    page_size: int
+    items: List[SecurityEventResponse]
+
+
+# ============================================================================
+# Tenant Settings Schemas
+# ============================================================================
+
+class TenantSettingsUpdate(BaseModel):
+    """PATCH body for updating tenant settings."""
+    notification_email: Optional[str] = None
+    webhook_url: Optional[str] = None
+    timezone: Optional[str] = None
+    data_retention_days: Optional[int] = Field(default=None, ge=1, le=365)
+    settings_json: Optional[dict] = None
+
+
+class TenantSettingsResponse(BaseModel):
+    """Tenant settings returned to the client."""
+    id: str
+    tenant_id: str
+    notification_email: Optional[str]
+    webhook_url: Optional[str]
+    timezone: str
+    data_retention_days: int
+    settings_json: dict
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# Risk & Reputation Schemas
+# ============================================================================
+
+class RiskAssessmentRequest(BaseModel):
+    """Request body for on-demand risk assessment."""
+    url: Optional[str] = Field(default=None, max_length=2048)
+    content: Optional[str] = None
+    action: Optional[str] = None
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class RiskAssessmentResponse(BaseModel):
+    """Risk assessment result."""
+    risk_score: int
+    risk_level: str
+    breakdown: dict
+    recommendations: List[str]
+
+
+class ReputationCheckRequest(BaseModel):
+    """Request body for URL/domain reputation check."""
+    url: str = Field(..., max_length=2048)
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class ReputationCheckResponse(BaseModel):
+    """Reputation check result."""
+    url: str
+    is_safe: bool
+    risk_score: int
+    categories: List[str]
+    details: dict
+
+
+# ============================================================================
+# Analytics Schemas
+# ============================================================================
+
+class AnalyticsOverview(BaseModel):
+    """Dashboard analytics overview response."""
+    total_sessions: int
+    total_events: int
+    total_incidents: int
+    active_agents: int
+    risk_distribution: dict
+    top_event_types: dict
+    average_risk_score: float
+    sessions_by_status: dict
+
+
+# ============================================================================
+# Job & Sandbox Schemas
+# ============================================================================
+
+class JobResponse(BaseModel):
+    """Background job info."""
+    id: str
+    tenant_id: str
+    task_name: str
+    status: str
+    created_at: datetime
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    result: Optional[str]
+    error: Optional[str]
+
+
+class JobListResponse(BaseModel):
+    """Paginated list of jobs."""
+    total: int
+    page: int
+    page_size: int
+    items: List[JobResponse]
+
+
+class SandboxExecuteRequest(BaseModel):
+    """Request body for sandbox execution."""
+    task_prompt: str = Field(..., min_length=5, max_length=4096)
+    target_url: Optional[str] = Field(default=None, max_length=2048)
+    sandbox_mode: str = Field(default="isolated", examples=["isolated", "monitored"])
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class SandboxExecuteResponse(BaseModel):
+    """Sandbox execution result."""
+    session_id: str
+    status: str
+    sandbox_mode: str
+    message: str
+
+
+# ============================================================================
+# System Health Schemas
+# ============================================================================
+
+class HealthCheckResponse(BaseModel):
+    """Detailed system health check response."""
+    status: str
+    service: str
+    version: str
+    uptime_seconds: float
+    database: str
+    redis: str
+    timestamp: datetime

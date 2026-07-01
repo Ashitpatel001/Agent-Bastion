@@ -121,16 +121,25 @@ def run_secure_agent_custom():
         print(f" Error running agent: {e}")
     input("\nPress Enter to return to menu...")
 
+def launch_saas_platform():
+    print("\n 🚀 Launching Cloudflare/Stripe-level Zero-Trust SaaS Platform...")
+    try:
+        subprocess.run([sys.executable, "start_saas.py"])
+    except Exception as e:
+        print(f" Error running SaaS Platform launcher: {e}")
+    input("\nPress Enter to return to menu...")
+
 def main_menu():
     while True:
         clear_screen()
         print_header()
         print("\n   [1] 📦 Install/Update Dependencies")
         print("   [2]   Start Attack Server (Simulation Env)")
-        print("   [3]  Start Security Dashboard (Visualization)")
+        print("   [3]  Start Legacy Security Dashboard (Streamlit)")
         print("   [4]  Run Secure Agent (Default Validation)")
         print("   [5]  Run Secure Agent (Custom Prompt)")
         print("   [6]  Launch FULL Hackathon Demo (All-in-One Threaded)")
+        print("   [7] 🚀 Launch Cloudflare/Stripe-Level SaaS Platform (FastAPI + Next.js UI)")
         print("\n   [0] 🚪 Exit")
         print("-" * 60)
         
@@ -148,6 +157,8 @@ def main_menu():
             run_secure_agent_custom()
         elif choice == '6':
             launch_all_in_one()
+        elif choice == '7':
+            launch_saas_platform()
         elif choice == '0':
             print("\n👋 Exiting. Goodbye!")
             sys.exit(0)

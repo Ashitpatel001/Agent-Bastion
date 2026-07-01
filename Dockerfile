@@ -10,7 +10,7 @@ FROM python:3.11-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
+    PYTHONPATH=/app/src:/app \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
@@ -60,7 +60,7 @@ RUN python -m pip install --upgrade pip setuptools wheel
 
 COPY --chown=abs:abs . .
 
-RUN pip install .
+RUN pip install -e .
 
 RUN python -m playwright install chromium
 
@@ -108,21 +108,6 @@ ENTRYPOINT ["tini","--"]
 
 CMD ["celery","-A","src.workers.celery_app","worker","-Q","xai","--loglevel=info","--concurrency=4"]
 
-##############################
-# Dashboard
-##############################
-FROM deps AS dashboard
-
-USER abs
-
-EXPOSE 8501
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-CMD curl -fs http://localhost:8501/_stcore/health || exit 1
-
-ENTRYPOINT ["tini","--"]
-
-CMD ["streamlit","run","src/security/dashboard_app.py","--server.address=0.0.0.0","--server.port=8501","--server.headless=true","--browser.gatherUsageStats=false"]
 
 ##############################
 # Flower

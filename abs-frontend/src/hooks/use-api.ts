@@ -49,18 +49,20 @@ export function useUpdatePolicy() {
 }
 
 export function useSubmitAgentTask() {
-  const apiKey = useAppStore((state) => state.apiKey);
-
   return useMutation({
-    mutationFn: (data: AgentSessionCreateRequest) => AbsApiClient.create(apiKey!).submitAgentTask(data),
+    mutationFn: (data: AgentSessionCreateRequest) => {
+      const apiKey = useAppStore.getState().apiKey;
+      return AbsApiClient.create(apiKey || undefined).submitAgentTask(data);
+    },
   });
 }
 
 export function useCancelAgentTask() {
-  const apiKey = useAppStore((state) => state.apiKey);
-
   return useMutation({
-    mutationFn: (jobId: string) => AbsApiClient.create(apiKey!).cancelAgentTask(jobId),
+    mutationFn: (jobId: string) => {
+      const apiKey = useAppStore.getState().apiKey;
+      return AbsApiClient.create(apiKey || undefined).cancelAgentTask(jobId);
+    },
   });
 }
 
@@ -69,7 +71,10 @@ export function useAgentStatus(jobId: string | null) {
 
   return useQuery({
     queryKey: ['agentStatus', jobId],
-    queryFn: () => AbsApiClient.create(apiKey!).getAgentStatus(jobId!),
+    queryFn: () => {
+      const currentKey = useAppStore.getState().apiKey;
+      return AbsApiClient.create(currentKey || undefined).getAgentStatus(jobId!);
+    },
     enabled: !!apiKey && !!jobId,
     refetchInterval: (query) => {
         const data = query.state.data;
@@ -141,7 +146,7 @@ export function useAnalyticsTimeSeries(days: number = 30) {
   const { apiKey } = useAppStore();
   return useQuery({
     queryKey: ['analyticsTimeSeries', days],
-    queryFn: () => apiClient.getAnalyticsTimeSeries(days),
+    queryFn: () => AbsApiClient.create(apiKey!).getAnalyticsTimeSeries(days),
     enabled: !!apiKey,
     refetchInterval: 30000,
   });
@@ -151,15 +156,16 @@ export function useXaiLogs(page: number = 1, pageSize: number = 20, pendingOnly:
   const { apiKey } = useAppStore();
   return useQuery({
     queryKey: ['xaiLogs', page, pageSize, pendingOnly],
-    queryFn: () => apiClient.getXaiLogs(page, pageSize, pendingOnly),
+    queryFn: () => AbsApiClient.create(apiKey!).getXaiLogs(page, pageSize, pendingOnly),
     enabled: !!apiKey,
     refetchInterval: 10000,
   });
 }
 
 export function useReputationCheck() {
+  const { apiKey } = useAppStore();
   return useMutation({
-    mutationFn: (url: string) => apiClient.checkReputation(url),
+    mutationFn: (url: string) => AbsApiClient.create(apiKey || undefined).checkReputation(url),
   });
 }
 
@@ -167,7 +173,7 @@ export function useSystemHealth() {
   const { apiKey } = useAppStore();
   return useQuery({
     queryKey: ['systemHealth'],
-    queryFn: () => apiClient.getSystemHealth(),
+    queryFn: () => AbsApiClient.create(apiKey!).getSystemHealth(),
     enabled: !!apiKey,
     refetchInterval: 30000,
   });
@@ -177,7 +183,7 @@ export function useSecurityEvents(page: number = 1, pageSize: number = 50) {
   const { apiKey } = useAppStore();
   return useQuery({
     queryKey: ['securityEvents', page, pageSize],
-    queryFn: () => apiClient.getSecurityEvents(page, pageSize),
+    queryFn: () => AbsApiClient.create(apiKey!).getSecurityEvents(page, pageSize),
     enabled: !!apiKey,
     refetchInterval: 5000,
   });

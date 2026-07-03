@@ -23,9 +23,11 @@ async def submit_agent_task(
         task_prompt=request.task_prompt,
         target_url=request.target_url
     )
+    await db.commit()
     
-    # Enqueue Celery task
-    run_agent_task.delay(session.id, current_tenant.id, request.task_prompt, request.target_url)
+    # Enqueue task via resilient dispatcher
+    from workers.dispatch import dispatch_task
+    dispatch_task(run_agent_task, session.id, current_tenant.id)
     
     return {"session_id": session.id, "status": "QUEUED"}
 
@@ -52,9 +54,17 @@ async def cancel_agent_task(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    if session.status in [SessionStatus.COMPLETED, SessionStatus.FAILED]:
+    if session.status in [SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED]:
         raise HTTPException(status_code=400, detail="Cannot cancel a finished session")
         
-    await crud.update_session_status(db, session_id, SessionStatus.CANCELLED)
+    await crud.update_session_status(db, session_id, current_tenant.id, SessionStatus.CANCELLED)
+    await db.commit()
+
+    try:
+        from workers.agent_tasks import cancel_agent_task as cancel_worker_task
+        from workers.dispatch import dispatch_task
+        dispatch_task(cancel_worker_task, session_id, current_tenant.id)
+    except Exception:
+        pass
     
     return {"session_id": session_id, "status": "CANCELLED"}

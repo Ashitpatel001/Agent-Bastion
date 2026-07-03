@@ -25,6 +25,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -104,6 +105,7 @@ class BrowserSessionStatus(str, enum.Enum):
     IDLE = "IDLE"
     CLOSED = "CLOSED"
     ERROR = "ERROR"
+    TERMINATED = "TERMINATED"
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +262,7 @@ class AgentSession(Base):
     target_url = Column(String(2048), nullable=True)
     result_summary = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
+    telemetry_events = Column(JSON, nullable=False, default=list)
 
     # Execution timestamps
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)

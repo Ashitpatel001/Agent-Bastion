@@ -42,19 +42,19 @@ async def submit_agent_task(
         task_prompt=task_in.task_prompt,
         target_url=task_in.target_url
     )
+    await db.commit()
 
-    # --- Dispatch to Celery background worker ---
+    # --- Dispatch to background worker ---
     try:
         from workers.agent_tasks import run_agent_task
-        run_agent_task.delay(session.id, tenant.id)
+        from workers.dispatch import dispatch_task
+        dispatch_task(run_agent_task, session.id, tenant.id)
         logger.info(
             "Dispatched agent task: session=%s, tenant=%s",
             session.id, tenant.id,
         )
     except Exception as e:
-        logger.error("Failed to dispatch Celery task: %s", e)
-        # Session stays in QUEUED — the backfill_pending_xai pattern
-        # can be extended to retry queued sessions too.
+        logger.error("Failed to dispatch task: %s", e)
 
     return session
 

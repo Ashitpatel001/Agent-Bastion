@@ -120,6 +120,12 @@ app.include_router(agents.router)
 app.include_router(security.router)
 app.include_router(policies.router)
 
+# Also mount legacy routers under /api prefix for unified /api/v1/... access
+app.include_router(tenants.router, prefix="/api")
+app.include_router(agents.router, prefix="/api")
+app.include_router(security.router, prefix="/api")
+app.include_router(policies.router, prefix="/api")
+
 # Include the new V1 modular architecture
 app.include_router(api_v1_router, prefix="/api/v1")
 

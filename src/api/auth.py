@@ -5,7 +5,7 @@ from typing import Optional, Union
 from fastapi import Security, HTTPException, status, Depends
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from jose import JWTError, jwt
+from jose import JWTError, ExpiredSignatureError, jwt
 import bcrypt
 
 from db.database import get_db
@@ -94,8 +94,8 @@ async def get_current_user(
 
 
 async def get_current_tenant(
-    token: str = Depends(oauth2_scheme),
-    api_key: str = Security(api_key_header),
+    token: Optional[str] = Depends(oauth2_scheme),
+    api_key: Optional[str] = Security(api_key_header),
     db: AsyncSession = Depends(get_db)
 ) -> Tenant:
     """
@@ -116,8 +116,26 @@ async def get_current_tenant(
                     ctx.update({"tenant_id": tenant.id})
                     request_context.set(ctx)
                     return tenant
-        except JWTError:
-            pass # Fall back to API Key if JWT fails or is invalid
+                elif tenant and not tenant.is_active:
+                    logger.warning("Authentication failed: Tenant %s is inactive.", tenant_id)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Tenant account is inactive",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            # tenant_id missing from token or tenant not found — fall through to API key
+            logger.warning("JWT valid but tenant not found (tenant_id=%s). Trying API key.", tenant_id)
+        except ExpiredSignatureError:
+            # Token has expired — raise immediately with a clear message
+            logger.warning("Authentication failed: JWT token has expired.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired. Please sign in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except JWTError as e:
+            logger.warning("JWT decode failed (%s). Trying API key fallback.", e)
+            pass # Fall back to API Key if JWT is malformed or invalid
 
     if api_key:
         # Try API Key authentication (Fallback for frontend or service-to-service)
@@ -129,7 +147,7 @@ async def get_current_tenant(
             return tenant
             
     # If both failed or were missing
-    logger.warning("Authentication failed: Missing or invalid credentials.")
+    logger.warning("Authentication failed: No valid JWT token or API key provided.")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Missing or invalid authentication credentials",
@@ -151,8 +169,8 @@ class RequireRole:
 
     async def __call__(
         self,
-        token: str = Depends(oauth2_scheme),
-        api_key: str = Security(api_key_header),
+        token: Optional[str] = Depends(oauth2_scheme),
+        api_key: Optional[str] = Security(api_key_header),
         db: AsyncSession = Depends(get_db)
     ) -> Tenant:
         # Authenticate tenant using existing logic

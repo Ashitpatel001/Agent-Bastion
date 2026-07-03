@@ -15,12 +15,12 @@ import { BrainCircuit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronU
 export default function XaiExplanationsPage() {
   const [page, setPage] = React.useState(1);
   const [activeTab, setActiveTab] = React.useState<'all' | 'pending'>('all');
-  const [expandedRows, setExpandedRows] = React.useState<Record<number, boolean>>({});
+  const [expandedRows, setExpandedRows] = React.useState<Record<string | number, boolean>>({});
 
   const isPendingFilter = activeTab === 'pending';
   const { data, isLoading } = useXaiLogs(page, 20, isPendingFilter);
 
-  const toggleExpand = (id: number) => {
+  const toggleExpand = (id: string | number) => {
     setExpandedRows((prev) => ({
       ...prev,
       [id]: !prev[id],
@@ -128,12 +128,12 @@ export default function XaiExplanationsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={RISK_LEVEL_COLORS[log.risk_level] || 'border-zinc-700'}>
+                          <Badge variant="outline" className={RISK_LEVEL_COLORS[log.risk_level as keyof typeof RISK_LEVEL_COLORS] || 'border-zinc-700'}>
                             {log.risk_score}/100
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <span className={`text-sm font-semibold ${ACTION_TAKEN_COLORS[log.action_taken] || 'text-zinc-400'}`}>
+                          <span className={`text-sm font-semibold ${ACTION_TAKEN_COLORS[log.action_taken as keyof typeof ACTION_TAKEN_COLORS] || 'text-zinc-400'}`}>
                             {log.action_taken}
                           </span>
                         </TableCell>
@@ -183,11 +183,11 @@ export default function XaiExplanationsPage() {
                                   {log.xai_explanation}
                                 </div>
                               )}
-                              {log.details && Object.keys(log.details).length > 0 && (
+                              {log.details && (typeof log.details === 'string' ? log.details.length > 0 : Object.keys(log.details).length > 0) && (
                                 <div className="mt-3 pt-3 border-t border-zinc-800/60">
                                   <span className="text-xs font-medium text-muted-foreground block mb-1">Raw Telemetry Details:</span>
                                   <pre className="text-[11px] font-mono bg-zinc-950/80 p-2.5 rounded border border-zinc-800 text-zinc-400 overflow-x-auto">
-                                    {JSON.stringify(log.details, null, 2)}
+                                    {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
                                   </pre>
                                 </div>
                               )}

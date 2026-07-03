@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional, Any
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 
 
 # ============================================================================
@@ -155,6 +155,7 @@ class AgentSessionResponse(BaseModel):
     target_url: Optional[str]
     result_summary: Optional[str]
     error_message: Optional[str]
+    telemetry_events: list[dict] = []
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
@@ -594,10 +595,12 @@ class ReputationCheckRequest(BaseModel):
 class ReputationCheckResponse(BaseModel):
     """Reputation check result."""
     url: str
+    domain: Optional[str] = None
+    trust_level: Optional[str] = None
     is_safe: bool
     risk_score: int
     categories: List[str]
-    details: dict
+    details: Any = None
 
 
 # ============================================================================
@@ -616,9 +619,8 @@ class AnalyticsOverview(BaseModel):
     sessions_by_status: dict
 
 
-# ============================================================================
+
 # Job & Sandbox Schemas
-# ============================================================================
 
 class JobResponse(BaseModel):
     """Background job info."""
@@ -656,6 +658,34 @@ class SandboxExecuteResponse(BaseModel):
     status: str
     sandbox_mode: str
     message: str
+
+
+class SandboxSessionResponse(BaseModel):
+    """Sandbox session details."""
+    id: str
+    session_id: Optional[str] = None
+    status: str
+    task_prompt: str
+    target_url: Optional[str] = None
+    result_summary: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def populate_session_id(self) -> "SandboxSessionResponse":
+        if not self.session_id:
+            self.session_id = self.id
+        return self
+
+
+class SandboxListResponse(BaseModel):
+    """Paginated list of sandbox sessions."""
+    total: int
+    page: int
+    page_size: int
+    items: List[SandboxSessionResponse]
 
 
 # ============================================================================

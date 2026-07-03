@@ -20,6 +20,9 @@ if sys.platform == "win32":
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+import pytest
+
+@pytest.mark.anyio
 async def test_full_flow():
     """End-to-end test of the refactored security engine components."""
     from db.database import init_db, get_db_context, engine
@@ -33,14 +36,14 @@ async def test_full_flow():
     print("Component 3: Core Security Engine Integration Test")
     print("=" * 60)
 
-    # --- Setup: Create in-memory DB ---
+    # Setup: Create in-memory DB
     # Override to use in-memory SQLite for testing
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     print("\n[1/7] ✅ Database tables created")
 
-    # --- Create a test tenant ---
+    # Create a test tenant
     async with get_db_context() as db:
         tenant, raw_key = await crud.create_tenant(
             db,
@@ -51,7 +54,7 @@ async def test_full_flow():
         tenant_id = tenant.id
         print(f"[2/7] ✅ Tenant created: {tenant.name} (id={tenant_id})")
 
-    # --- Test AsyncSecurityLogger (DB writes) ---
+    # Test AsyncSecurityLogger (DB writes) 
     async_logger = AsyncSecurityLogger(
         tenant_id=tenant_id,
         session_id=None,
@@ -81,7 +84,7 @@ async def test_full_flow():
     assert log_id_2 is not None
     print(f"[4/7] ✅ AsyncSecurityLogger.log_event with xai_pending=True OK (id={log_id_2})")
 
-    # --- Test XAI backfill ---
+    # Test XAI backfill 
     success = await async_logger.update_xai_explanation(
         log_id_2,
         "The agent clicked an element on Amazon.com which is a trusted domain. No risk detected.",
@@ -117,7 +120,7 @@ async def test_full_flow():
 
     print(f"[7/7] ✅ TenantPolicyEngine.check_input OK")
 
-    # --- Verify audit logs in DB ---
+    # Verify audit logs in DB
     async with get_db_context() as db:
         logs, total = await crud.list_audit_logs(db, tenant_id)
         # Should have: injection attempt + risk assessment + policy violations from nav checks
@@ -126,7 +129,7 @@ async def test_full_flow():
             print(f"   [{log.risk_level.value if hasattr(log.risk_level, 'value') else log.risk_level}] "
                   f"{log.event_type}: {log.details[:60]}...")
 
-    # --- Legacy backward compat ---
+    # Legacy backward compat 
     SecurityLogger.set_global_context(async_logger)
     SecurityLogger.log_event(
         event_type="LEGACY_TEST",

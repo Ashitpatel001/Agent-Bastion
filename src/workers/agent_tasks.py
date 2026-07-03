@@ -33,7 +33,7 @@ import logging
 import os
 import traceback
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Coroutine
 
 from celery import shared_task
 from celery.utils.log import get_task_logger
@@ -43,32 +43,28 @@ load_dotenv()
 
 logger = get_task_logger(__name__)
 
-
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
-AGENT_LLM_MODEL: str = os.getenv("AGENT_LLM_MODEL", "LLama")
+AGENT_LLM_MODEL: str = os.getenv("AGENT_LLM_MODEL", "llama-3.3-70b-versatile")
 AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "25"))
 
-
-# ---------------------------------------------------------------------------
 # Async ↔ Sync Bridge
-# ---------------------------------------------------------------------------
-def _run_async(coro):
-    """
-    Run an async coroutine from synchronous Celery task context.
-    Creates a fresh event loop per invocation.
-    """
-    loop = asyncio.new_event_loop()
+def _run_async(coro: Coroutine) -> Any:
+    """Utility to run an async coroutine synchronously, avoiding loop conflicts."""
+    # Safest way in a thread is to use asyncio.run
     try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+        return asyncio.run(coro)
+    except RuntimeError:
+        # Fallback if asyncio.run fails due to existing loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
 
-# ---------------------------------------------------------------------------
 # Database Operations
-# ---------------------------------------------------------------------------
+
 async def _update_session(
     session_id: str,
     tenant_id: str,
@@ -141,22 +137,79 @@ async def _get_tenant_max_concurrent(tenant_id: str) -> int:
         tenant = await crud.get_tenant_by_id(db, tenant_id=tenant_id)
         if tenant:
             return tenant.max_concurrent_sessions
-    return 2  # Default fallback
+    return 2 
 
-
-# ---------------------------------------------------------------------------
 # Agent Execution
-# ---------------------------------------------------------------------------
+def _extract_agent_summary(result) -> str:
+    """Dynamically extracts clean human-readable results, items, and summaries from agent execution history."""
+    extracted_data = []
+    actions_taken = []
+    final_text = None
+
+    # 1. Check if final_result() produced clean text
+    if hasattr(result, "final_result") and callable(result.final_result):
+        res = result.final_result()
+        if res and isinstance(res, str) and res.strip() and not res.strip().startswith("[ActionResult"):
+            final_text = res.strip()
+
+    # 2. Iterate through step history to collect extracted items and memory
+    if hasattr(result, "history") and result.history:
+        for idx, step in enumerate(result.history, 1):
+            # Collect extracted content from actions
+            if hasattr(step, "result") and step.result:
+                for ar in step.result:
+                    if hasattr(ar, "extracted_content") and ar.extracted_content:
+                        content_str = str(ar.extracted_content).strip()
+                        if content_str and content_str not in extracted_data:
+                            extracted_data.append(content_str)
+                    if hasattr(ar, "error") and ar.error and "Security Block" in str(ar.error):
+                        actions_taken.append(f"⚠️ Security interception: {ar.error}")
+
+            # Collect model planning / memory
+            if hasattr(step, "model_output") and step.model_output:
+                mo = step.model_output
+                if hasattr(mo, "current_state") and mo.current_state:
+                    cs = mo.current_state
+                    if hasattr(cs, "memory") and cs.memory and cs.memory not in actions_taken:
+                        actions_taken.append(str(cs.memory))
+                    if hasattr(cs, "evaluation_previous_goal") and cs.evaluation_previous_goal:
+                        eval_str = str(cs.evaluation_previous_goal)
+                        if "success" in eval_str.lower() or "found" in eval_str.lower():
+                            if eval_str not in actions_taken:
+                                actions_taken.append(eval_str)
+
+    # Build formatted markdown output
+    sections = []
+    if final_text:
+        sections.append(f"### Mission Output\n{final_text}")
+
+    if extracted_data:
+        sections.append("### Extracted Items & Findings")
+        for i, item in enumerate(extracted_data, 1):
+            sections.append(f"{i}. {item}")
+
+    if actions_taken and not final_text and not extracted_data:
+        sections.append("### Execution Log Summary")
+        for act in actions_taken[-5:]:
+            sections.append(f"- {act}")
+
+    if not sections:
+        step_count = len(result.history) if hasattr(result, "history") and result.history else 0
+        return f"Autonomous agent navigated target environment and completed mission over {step_count} step(s)."
+
+    return "\n\n".join(sections)[:4000]
+
+
 async def _execute_secure_agent(
     session_id: str,
     tenant_id: str,
     task_prompt: str,
-    target_url: Optional[str],
+    target_url: Optional[str] = None,
 ) -> str:
     """
-    Instantiate and run the SecureAgent with full security layers.
+    Instantiate and run a SecureAgent inside an async coroutine.
 
-    The agent is created with tenant_id and session_id so all audit
+    Ensures the async DB logger is active in the current loop so that
     logs and policy checks are correctly scoped.
 
     Returns:
@@ -172,29 +225,59 @@ async def _execute_secure_agent(
     if target_url:
         task = f"Navigate to {target_url} and {task_prompt}"
 
+    async def _add_telemetry(session_id, tenant_id, event_data):
+        from db.database import get_db_context
+        from db.crud import add_telemetry_event
+        async with get_db_context() as db:
+            await add_telemetry_event(db, session_id, tenant_id, event_data)
+            await db.commit()
+
+    async def step_callback(state, agent_output, step_num):
+        msg = f"Executing step {step_num}..."
+        try:
+            if hasattr(agent_output, "current_state") and agent_output.current_state:
+                cs = agent_output.current_state
+                if hasattr(cs, "next_goal") and cs.next_goal:
+                    msg = cs.next_goal
+                elif hasattr(cs, "memory") and cs.memory:
+                    msg = cs.memory
+                
+            # Log navigation if present
+            if hasattr(agent_output, "action") and agent_output.action:
+                for act in agent_output.action:
+                    if hasattr(act, "navigate") and act.navigate:
+                        msg = f"Navigating to {act.navigate.url}"
+                        break
+        except Exception:
+            pass
+
+        event = {
+            "type": "step",
+            "step_num": step_num,
+            "message": msg
+        }
+        await _add_telemetry(session_id, tenant_id, event)
+
     # Instantiate the SecureAgent with tenant context
     agent = SecureAgent(
         task=task,
         llm=llm,
         tenant_id=tenant_id,
         session_id=session_id,
+        register_new_step_callback=step_callback,
     )
 
+    # Log initialization
+    await _add_telemetry(session_id, tenant_id, {"type": "system", "message": "Session Created"})
+    await _add_telemetry(session_id, tenant_id, {"type": "system", "message": "Browser Started"})
+    
     # Execute the agent
     result = await agent.run(max_steps=AGENT_MAX_STEPS)
+    
+    await _add_telemetry(session_id, tenant_id, {"type": "system", "message": "Mission Completed"})
 
-    # Extract result summary from the agent's output
-    if hasattr(result, "final_result") and callable(result.final_result):
-        summary = result.final_result()
-        if summary:
-            return str(summary)[:4000]
-
-    if hasattr(result, "history") and result.history:
-        last = result.history[-1]
-        if hasattr(last, "result") and last.result:
-            return str(last.result)[:4000]
-
-    return "Agent execution completed successfully."
+    # Extract dynamic human-readable summary
+    return _extract_agent_summary(result)
 
 
 import os
@@ -204,15 +287,44 @@ AGENT_LLM_MODEL = os.getenv("AGENT_LLM_MODEL", "llama-3.3-70b-versatile")
 
 
 def _build_agent_llm():
-    from langchain_groq import ChatGroq
+    if os.getenv("OPENAI_API_KEY"):
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model="gpt-4o")
+        object.__setattr__(llm, "provider", "openai")
+        return llm
+    
+    if os.getenv("GEMINI_API_KEY"):
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+        object.__setattr__(llm, "provider", "google")
+        return llm
 
-    return ChatGroq(
+    from langchain_groq import ChatGroq
+    from langchain_core.language_models.chat_models import BaseChatModel
+    
+    # Ensure compatibility with browser-use checks and telemetry wrapper registrations
+    for cls in (ChatGroq, BaseChatModel):
+        if not hasattr(cls, "_browser_use_patched"):
+            orig_setattr = cls.__setattr__
+            def permissive_setattr(self, name, val):
+                try:
+                    orig_setattr(self, name, val)
+                except ValueError:
+                    object.__setattr__(self, name, val)
+            cls.__setattr__ = permissive_setattr
+            cls._browser_use_patched = True
+
+    if not hasattr(ChatGroq, "provider"):
+        ChatGroq.provider = "groq"
+
+    llm = ChatGroq(
         model=AGENT_LLM_MODEL,
         api_key=os.getenv("GROQ_API_KEY", ""),
     )
-# ---------------------------------------------------------------------------
+    object.__setattr__(llm, "provider", "groq")
+    return llm
+
 # Celery Tasks
-# ---------------------------------------------------------------------------
 
 @shared_task(
     bind=True,
@@ -243,10 +355,11 @@ def run_agent_task(
     Returns:
         Dict with status, session_id, and result_summary.
     """
+    retries = getattr(self.request, "retries", 0) if hasattr(self, "request") else 0
     logger.info(
         "Starting agent task: session=%s, tenant=%s (attempt %d/%d)",
         session_id, tenant_id,
-        self.request.retries + 1, 2,
+        retries + 1, 2,
     )
 
     # --- 0. Concurrency check ---
@@ -278,12 +391,23 @@ def run_agent_task(
         pass  # Non-critical — proceed with execution
 
     # --- 1. Fetch session details ---
-    session_details = _run_async(
-        _get_session_details(session_id, tenant_id)
-    )
+    import time
+    session_details = None
+    for _attempt in range(5):
+        session_details = _run_async(
+            _get_session_details(session_id, tenant_id)
+        )
+        if session_details:
+            break
+        time.sleep(0.3)
+
     if not session_details:
         error_msg = f"Session {session_id} not found for tenant {tenant_id}"
         logger.error(error_msg)
+        try:
+            _run_async(_update_session(session_id, tenant_id, "FAILED", error_message=error_msg))
+        except Exception:
+            pass
         return {"status": "failed", "session_id": session_id, "error": error_msg}
 
     task_prompt = session_details["task_prompt"]
@@ -341,8 +465,11 @@ def run_agent_task(
         )
 
         # Re-raise for Celery retry on first attempt
-        if self.request.retries < 1:
-            raise self.retry(exc=exc)
+        if hasattr(self, "retry") and retries < 1:
+            try:
+                raise self.retry(exc=exc)
+            except AttributeError:
+                pass # If self.retry isn't bound, just continue to return failed
 
         return {
             "status": "failed",

@@ -92,6 +92,7 @@ export interface AgentSession {
   target_url: string | null;
   result_summary: string | null;
   error_message: string | null;
+  telemetry_events?: any[];
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -201,15 +202,18 @@ export interface TimeSeriesResponse {
 }
 
 export interface XaiAuditLog {
-  id: number;
+  id: string | number;
+  tenant_id?: string | number;
+  session_id?: string | null;
   event_type: string;
-  url: string;
-  risk_level: RiskLevel;
+  url?: string | null;
+  risk_level: RiskLevel | string;
   risk_score: number;
-  action_taken: ActionTaken;
+  action_taken: ActionTaken | string;
   xai_explanation: string | null;
   xai_pending: boolean;
-  details: Record<string, unknown>;
+  details?: string | Record<string, unknown> | null;
+  risk_breakdown?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -226,10 +230,12 @@ export interface ReputationCheckRequest {
 
 export interface ReputationCheckResponse {
   url: string;
-  domain: string;
-  trust_level: string;
+  domain?: string | null;
+  trust_level?: string | null;
   is_safe: boolean;
-  details: string;
+  risk_score: number;
+  categories: string[];
+  details?: string | Record<string, unknown> | null;
 }
 
 export interface SystemHealthResponse {
@@ -241,12 +247,14 @@ export interface SystemHealthResponse {
 }
 
 export interface SecurityEvent {
-  id: number;
-  tenant_id: number;
+  id: string | number;
+  tenant_id: string | number;
+  session_id?: string | null;
   event_type: string;
-  source: string;
+  source?: string | null;
   severity: string;
-  details: Record<string, unknown>;
+  details?: string | Record<string, unknown> | null;
+  raw_data?: Record<string, unknown> | null;
   created_at: string;
 }
 

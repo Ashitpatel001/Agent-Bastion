@@ -201,7 +201,7 @@ export default function ProxyFirewallPage() {
                 <div className="space-y-4 rounded-lg bg-zinc-950/90 border border-zinc-800 p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono text-zinc-400 truncate max-w-[150px]">
-                      {repResult.domain || repResult.url}
+                      {typeof repResult.domain === 'string' ? repResult.domain : String(repResult.url || 'target')}
                     </span>
                     <Badge
                       variant={repResult.is_safe ? 'outline' : 'destructive'}
@@ -212,11 +212,11 @@ export default function ProxyFirewallPage() {
                       }`}
                     >
                       {repResult.is_safe ? <CheckCircle2 className="size-3" /> : <AlertTriangle className="size-3" />}
-                      {repResult.trust_level || (repResult.is_safe ? 'SAFE' : 'HIGH RISK')}
+                      {typeof repResult.trust_level === 'string' ? repResult.trust_level : (repResult.is_safe ? 'SAFE' : 'HIGH RISK')}
                     </Badge>
                   </div>
-                  <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-900/50 p-2.5 rounded border border-zinc-800/60">
-                    {repResult.details || 'Domain reputation verified against global autonomous threat intelligence databases.'}
+                  <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-900/50 p-2.5 rounded border border-zinc-800/60 font-mono">
+                    {typeof repResult.details === 'object' ? JSON.stringify(repResult.details, null, 2) : String(repResult.details || 'Domain reputation verified against global autonomous threat intelligence databases.')}
                   </p>
                 </div>
               ) : (

@@ -40,6 +40,13 @@ export default function SandboxPage() {
 
   const isActive = jobStatus && [SessionStatus.QUEUED, SessionStatus.RUNNING].includes(jobStatus.status);
 
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [jobStatus?.telemetry_events, isActive]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       const data = {
@@ -176,17 +183,20 @@ export default function SandboxPage() {
           </CardHeader>
           <CardContent className="flex-1 p-0 bg-black/40 overflow-hidden relative font-mono text-sm">
             {activeJobId ? (
-              <div className="p-4 space-y-4 overflow-y-auto h-full max-h-[500px]">
+              <div ref={scrollRef} className="p-4 space-y-4 overflow-y-auto h-full max-h-[500px]">
                 <div className="text-zinc-500">[{jobStatus?.created_at ? new Date(jobStatus.created_at).toLocaleTimeString() : '...'}] System: Session initialized. Job ID: {activeJobId}</div>
                 
-                {jobStatus?.started_at && (
-                  <div className="text-blue-400">[{new Date(jobStatus.started_at).toLocaleTimeString()}] System: Agent worker assigned. Navigating to target...</div>
-                )}
+                {jobStatus?.telemetry_events?.map((event: any, i: number) => (
+                  <div key={i} className={`flex items-start gap-2 ${event.type === 'system' ? 'text-blue-400' : 'text-zinc-300'}`}>
+                    <span className="shrink-0 opacity-70">[{new Date(event.timestamp).toLocaleTimeString()}]</span>
+                    <span>{event.type === 'system' ? 'System: ' : ''}{event.message}</span>
+                  </div>
+                ))}
                 
                 {isActive && (
-                  <div className="flex items-center gap-2 text-emerald-500">
+                  <div className="flex items-center gap-2 text-emerald-500 mt-2">
                     <RefreshCw className="size-3 animate-spin" /> 
-                    <span>Agent is reasoning and executing actions via ABSs Proxy...</span>
+                    <span>Agent is actively executing mission...</span>
                   </div>
                 )}
                 
@@ -199,7 +209,7 @@ export default function SandboxPage() {
                     {jobStatus.result_summary && (
                       <div className="mt-4 p-3 bg-zinc-900 rounded border border-zinc-800 text-zinc-300">
                         <div className="text-xs text-zinc-500 mb-2 uppercase">Result Summary</div>
-                        {jobStatus.result_summary}
+                        {typeof jobStatus.result_summary === 'object' ? JSON.stringify(jobStatus.result_summary, null, 2) : String(jobStatus.result_summary)}
                       </div>
                     )}
                   </>
@@ -214,7 +224,7 @@ export default function SandboxPage() {
                     {jobStatus.error_message && (
                       <div className="mt-4 p-3 bg-red-950/30 rounded border border-red-900/50 text-red-400">
                         <div className="text-xs text-red-500/70 mb-2 uppercase">Error Trace</div>
-                        {jobStatus.error_message}
+                        {typeof jobStatus.error_message === 'object' ? JSON.stringify(jobStatus.error_message, null, 2) : String(jobStatus.error_message)}
                       </div>
                     )}
                   </>

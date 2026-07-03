@@ -32,6 +32,7 @@ def check(name: str, condition: bool, detail: str = ""):
         failed += 1
 
 async def async_setup():
+    import uuid
     from db.database import init_db, get_db_context
     from db import crud
     from db.schemas import AuditLogCreate
@@ -39,7 +40,7 @@ async def async_setup():
     await init_db()
 
     async with get_db_context() as db:
-        tenant, _ = await crud.create_tenant(db, name="Worker Test Tenant", email="worker@test.com")
+        tenant, _ = await crud.create_tenant(db, name="Worker Test Tenant", email=f"worker_{uuid.uuid4().hex[:8]}@test.com")
         tenant_id = tenant.id
         
         session = await crud.create_session(db, tenant_id=tenant_id, task_prompt="Test agent task", target_url="http://test.com")

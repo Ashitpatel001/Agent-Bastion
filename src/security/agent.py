@@ -69,6 +69,24 @@ class SecureAgent(Agent):
         self._tenant_id: Optional[str] = kwargs.pop("tenant_id", None)
         self._session_id: Optional[str] = kwargs.pop("session_id", None)
 
+        # --- Ensure LLM compatibility with browser-use library ---
+        llm = kwargs.get("llm")
+        if llm is not None:
+            cls = type(llm)
+            if not hasattr(cls, "_browser_use_patched"):
+                orig_setattr = cls.__setattr__
+                def permissive_setattr(s, n, v):
+                    try:
+                        orig_setattr(s, n, v)
+                    except ValueError:
+                        object.__setattr__(s, n, v)
+                cls.__setattr__ = permissive_setattr
+                cls._browser_use_patched = True
+            if not hasattr(llm, "provider"):
+                object.__setattr__(llm, "provider", getattr(llm, "_provider", "groq"))
+            if not hasattr(cls, "provider"):
+                cls.provider = property(lambda s: getattr(s, "_provider", "groq"))
+
         super().__init__(*args, **kwargs)
 
         # --- Initialize Async Logger (DB-backed) ---
@@ -272,8 +290,8 @@ class SecureAgent(Agent):
         # to work with browser-use's internal property system
         try:
             self.browser_session.get_browser_state_summary = secure_get_state
-        except (AttributeError, TypeError):
-            # Fallback: some browser-use versions use __slots__ or descriptors
+        except Exception:
+            # Fallback: handles Pydantic validate_assignment, __slots__, or descriptors
             object.__setattr__(
                 self.browser_session,
                 "get_browser_state_summary",
@@ -1021,10 +1039,11 @@ class SecureAgent(Agent):
                 "security_state": self.security_state,
             }
 
-            # --- Dispatch to Celery worker (fire-and-forget) ---
+            # --- Dispatch to worker (fire-and-forget) ---
             try:
                 from workers.xai_tasks import generate_xai_explanation as xai_task
-                xai_task.delay(log_id, xai_payload)
+                from workers.dispatch import dispatch_task
+                dispatch_task(xai_task, log_id, xai_payload)
                 logger.info(
                     "📋 XAI task dispatched for log %s (fire-and-forget)",
                     log_id,
@@ -1032,7 +1051,7 @@ class SecureAgent(Agent):
                 return  # Success — worker handles the rest
             except Exception as celery_err:
                 logger.warning(
-                    "Celery dispatch failed (%s) — falling back to inline XAI.",
+                    "Task dispatch failed (%s) — falling back to inline XAI.",
                     celery_err,
                 )
 
@@ -1090,9 +1109,7 @@ class SecureAgent(Agent):
             )
 
 
-# =========================================================================
 # SENTINEL SCAN SCRIPT (Extracted for readability)
-# =========================================================================
 
 def _build_sentinel_scan_script() -> str:
     """

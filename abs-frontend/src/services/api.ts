@@ -96,6 +96,20 @@ export class AbsApiClient {
       } else if (typeof data === 'string') {
         errorMessage = data;
       }
+
+      // Handle 401 Unauthorized — clear stale credentials and redirect to login
+      if (response.status === 401 && typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem('abs-app-storage');
+        } catch (_) { /* ignore */ }
+        // Redirect to login page after a brief delay to allow error toast to show
+        setTimeout(() => {
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
+        }, 1500);
+      }
+
       throw new Error(errorMessage);
     }
 
@@ -103,52 +117,52 @@ export class AbsApiClient {
   }
 
   public async registerTenant(data: TenantCreateRequest): Promise<TenantCreateResponse> {
-    return this.fetch<TenantCreateResponse>('/v1/tenants', {
+    return this.fetch<TenantCreateResponse>('/api/v1/tenants', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   public async submitAgentTask(data: AgentSessionCreateRequest): Promise<AgentSession> {
-    return this.fetch<AgentSession>('/v1/agent/run', {
+    return this.fetch<AgentSession>('/api/v1/agent/run', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   public async getAgentStatus(jobId: string): Promise<AgentSession> {
-    return this.fetch<AgentSession>(`/v1/agent/status/${jobId}`, {
+    return this.fetch<AgentSession>(`/api/v1/agent/status/${jobId}`, {
       method: 'GET',
     });
   }
 
   public async cancelAgentTask(jobId: string): Promise<Record<string, unknown>> {
-    return this.fetch<Record<string, unknown>>(`/v1/agent/cancel/${jobId}`, {
+    return this.fetch<Record<string, unknown>>(`/api/v1/agent/cancel/${jobId}`, {
       method: 'POST',
     });
   }
 
   public async getActivePolicy(): Promise<Policy> {
-    return this.fetch<Policy>('/v1/security/policies', {
+    return this.fetch<Policy>('/api/v1/security/policies', {
       method: 'GET',
     });
   }
 
   public async updatePolicy(data: PolicyUpdateRequest): Promise<Policy> {
-    return this.fetch<Policy>('/v1/security/policies', {
+    return this.fetch<Policy>('/api/v1/security/policies', {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
   public async getSecurityLogs(page: number = 1, pageSize: number = 50): Promise<AuditLogListResponse> {
-    return this.fetch<AuditLogListResponse>(`/v1/security/logs?page=${page}&page_size=${pageSize}`, {
+    return this.fetch<AuditLogListResponse>(`/api/v1/security/logs?page=${page}&page_size=${pageSize}`, {
       method: 'GET',
     });
   }
 
   public async getSecurityStats(): Promise<SecurityStats> {
-    return this.fetch<SecurityStats>('/v1/security/stats', {
+    return this.fetch<SecurityStats>('/api/v1/security/stats', {
       method: 'GET',
     });
   }

@@ -308,6 +308,39 @@ async def update_session_status(
     await db.flush()
     return session
 
+async def add_telemetry_event(
+    db: AsyncSession,
+    session_id: str,
+    tenant_id: str,
+    event_data: dict,
+) -> Optional[AgentSession]:
+    """Append a telemetry event to a session."""
+    result = await db.execute(
+        select(AgentSession).where(
+            AgentSession.id == session_id,
+            AgentSession.tenant_id == tenant_id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        return None
+    
+    events = list(session.telemetry_events) if session.telemetry_events else []
+    
+    # Ensure created_at is injected
+    if "timestamp" not in event_data:
+        event_data["timestamp"] = datetime.now(timezone.utc).isoformat()
+        
+    events.append(event_data)
+    session.telemetry_events = events
+    
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(session, "telemetry_events")
+    
+    await db.flush()
+    return session
+
+
 
 async def get_session(
     db: AsyncSession, session_id: str, tenant_id: str
@@ -519,37 +552,60 @@ async def get_time_series_stats(
 ) -> list[dict]:
     """Get daily counts of safe vs blocked actions for chart data."""
     from datetime import datetime, timedelta, timezone
-    from sqlalchemy import func, case, cast, Date, select
+    from sqlalchemy import select
     from db.models import AuditLog
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days)
 
     results = await db.execute(
-        select(
-            cast(AuditLog.created_at, Date).label('date'),
-            func.count().label('total'),
-            func.count(case((AuditLog.action_taken.in_(['ALLOWED', 'MONITOR']), 1))).label('safe'),
-            func.count(case((AuditLog.action_taken.in_(['BLOCKED', 'BLOCK_AND_ESCALATE', 'SANITIZED']), 1))).label('blocked'),
-            func.avg(AuditLog.risk_score).label('avg_risk')
-        ).where(
+        select(AuditLog.created_at, AuditLog.action_taken, AuditLog.risk_score).where(
             AuditLog.tenant_id == tenant_id,
             AuditLog.created_at >= cutoff
-        ).group_by(
-            cast(AuditLog.created_at, Date)
-        ).order_by(
-            cast(AuditLog.created_at, Date)
         )
     )
     rows = results.all()
-    return [
-        {
-            'date': row.date.isoformat() if hasattr(row.date, 'isoformat') else str(row.date) if row.date is not None else None,
-            'total': row.total,
-            'safe': row.safe,
-            'blocked': row.blocked,
-            'avg_risk': round(float(row.avg_risk or 0), 1)
-        }
-        for row in rows
-    ]
+
+    # Initialize dictionary for each of the last `days` days so timeline is continuous
+    daily_stats = {}
+    for d in range(days - 1, -1, -1):
+        dt_key = (now - timedelta(days=d)).strftime('%Y-%m-%d')
+        daily_stats[dt_key] = {'total': 0, 'safe': 0, 'blocked': 0, 'risk_sum': 0}
+
+    for row in rows:
+        created_at = row.created_at
+        if hasattr(created_at, 'strftime'):
+            dt_str = created_at.strftime('%Y-%m-%d')
+        else:
+            dt_str = str(created_at)[:10]
+
+        if dt_str not in daily_stats:
+            daily_stats[dt_str] = {'total': 0, 'safe': 0, 'blocked': 0, 'risk_sum': 0}
+
+        st = daily_stats[dt_str]
+        st['total'] += 1
+        st['risk_sum'] += (row.risk_score or 0)
+
+        action = str(row.action_taken)
+        if hasattr(row.action_taken, 'value'):
+            action = row.action_taken.value
+        if action in ('ALLOWED', 'MONITOR', 'ActionTaken.ALLOWED', 'ActionTaken.MONITOR'):
+            st['safe'] += 1
+        else:
+            st['blocked'] += 1
+
+    output = []
+    for dt_str in sorted(daily_stats.keys()):
+        st = daily_stats[dt_str]
+        avg_r = round(st['risk_sum'] / st['total'], 1) if st['total'] > 0 else 0.0
+        output.append({
+            'date': dt_str,
+            'total': st['total'],
+            'safe': st['safe'],
+            'blocked': st['blocked'],
+            'avg_risk': avg_r
+        })
+    return output
 
 
 async def get_recent_incidents(

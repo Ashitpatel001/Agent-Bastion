@@ -31,62 +31,57 @@ load_dotenv()
 
 logger = logging.getLogger("workers.celery_app")
 
-# ---------------------------------------------------------------------------
+
 # Configuration from environment
-# ---------------------------------------------------------------------------
 BROKER_URL: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
 
-# ---------------------------------------------------------------------------
+
 # Celery instance
-# ---------------------------------------------------------------------------
 celery_app = Celery(
     "abs_workers",
     broker=BROKER_URL,
     backend=RESULT_BACKEND,
 )
 
-# ---------------------------------------------------------------------------
+
 # Configuration
-# ---------------------------------------------------------------------------
 celery_app.conf.update(
-    # --- Serialization ---
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
 
-    # --- Reliability ---
-    task_acks_late=True,                # Ack AFTER task completes
+    # Reliability
+    task_acks_late=True,              
     task_reject_on_worker_lost=True,    # Requeue if worker crashes
-    worker_prefetch_multiplier=1,       # Fetch one task at a time (fairness)
+    worker_prefetch_multiplier=1,       
 
-    # --- Time limits ---
-    task_soft_time_limit=300,           # 5 min soft limit (raises SoftTimeLimitExceeded)
-    task_time_limit=360,                # 6 min hard kill
+    # Time limits
+    task_soft_time_limit=300,           
+    task_time_limit=360,                
 
-    # --- Result expiry ---
-    result_expires=3600,                # Keep results for 1 hour
+    # Result expiry 
+    result_expires=3600,                
 
-    # --- Task routing ---
+    # Task routing
     task_routes={
         "workers.xai_tasks.*": {"queue": "xai"},
         "workers.agent_tasks.*": {"queue": "agents"},
     },
 
-    # --- Default queue ---
+    # Default queue 
     task_default_queue="default",
 
-    # --- Timezone ---
+    # Timezone 
     timezone="UTC",
     enable_utc=True,
 
-    # --- Logging ---
-    worker_hijack_root_logger=False,    # Don't override app logging
+    # Logging
+    worker_hijack_root_logger=False,  
 )
 
-# ---------------------------------------------------------------------------
+
 # Auto-discover task modules
-# ---------------------------------------------------------------------------
 celery_app.autodiscover_tasks(["workers"])
 
 logger.info(

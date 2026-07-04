@@ -3,8 +3,10 @@
 import * as React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShieldAlert, ShieldCheck, Activity, Users } from 'lucide-react';
-import { useSecurityStats, useAnalyticsTimeSeries, useIncidents } from '@/hooks/use-api';
+import { useSecurityStats, useAnalyticsTimeSeries, useIncidents, useSimulateTraffic } from '@/hooks/use-api';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Terminal, PlayCircle } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 function getSeverityColor(sev?: string) {
@@ -40,15 +42,69 @@ export default function OverviewPage() {
 
   const chartList = timeSeriesResponse?.data || [];
   const incidentsList = incidentsResponse?.items || [];
+  const simulateTraffic = useSimulateTraffic();
+
+  const handleSimulate = async () => {
+    await simulateTraffic.mutateAsync();
+  };
+
+  const isDashboardEmpty = stats?.total_actions === 0 && !isLoading;
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Overview of your autonomous agents' security posture and metrics.
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Overview of your autonomous agents' security posture and metrics.
+          </p>
+        </div>
+        
+        {isDashboardEmpty && (
+          <Button 
+            onClick={handleSimulate} 
+            disabled={simulateTraffic.isPending}
+            className="bg-cyan-600 hover:bg-cyan-500 text-white shadow-[0_0_15px_rgba(8,145,178,0.4)]"
+          >
+            {simulateTraffic.isPending ? 'Simulating...' : (
+              <>
+                <PlayCircle className="mr-2 h-4 w-4" /> Simulate Proxy Traffic
+              </>
+            )}
+          </Button>
+        )}
       </div>
+
+      {isDashboardEmpty && (
+        <Card className="glass border-cyan-500/30 bg-gradient-to-br from-cyan-950/20 to-transparent">
+          <CardHeader>
+            <CardTitle className="text-xl text-cyan-400 flex items-center gap-2">
+              <ShieldCheck className="h-6 w-6" /> 
+              Welcome to the ABS Proxy Firewall!
+            </CardTitle>
+            <CardDescription className="text-zinc-300 text-base">
+              Your autonomous agents are now protected. Follow these steps to route traffic through the zero-trust proxy and see real-time metrics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                <h3 className="font-semibold text-white mb-2">1. Connect Your Agents</h3>
+                <p className="text-sm text-zinc-400 mb-3">Configure your agent's network requests to route through the ABS proxy endpoint.</p>
+                <code className="text-xs text-cyan-300 bg-black/40 p-2 rounded block">export HTTP_PROXY=http://localhost:8000</code>
+              </div>
+              <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                <h3 className="font-semibold text-white mb-2">2. Real-time Protection</h3>
+                <p className="text-sm text-zinc-400">Our engine sits between your agent and the internet, inspecting payloads, URLs, and DOM structures in real-time.</p>
+              </div>
+              <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                <h3 className="font-semibold text-white mb-2">3. Cost & Time Savings</h3>
+                <p className="text-sm text-zinc-400">Reduce manual review time and prevent costly data breaches. ABS handles threats automatically.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="glass">

@@ -32,8 +32,10 @@ export default function LiveSecurityFeedPage() {
   const isLoading = isEventsLoading || (eventsData?.items?.length === 0 && isLogsLoading);
 
   const normalizedEvents: NormalizedEvent[] = React.useMemo(() => {
+    let combined: NormalizedEvent[] = [];
+
     if (eventsData?.items && eventsData.items.length > 0) {
-      return eventsData.items.map((e) => ({
+      const mappedEvents = eventsData.items.map((e: any) => ({
         id: `ev-${e.id}`,
         created_at: e.created_at,
         severity: e.severity?.toUpperCase() || 'MEDIUM',
@@ -41,10 +43,11 @@ export default function LiveSecurityFeedPage() {
         event_type: e.event_type || 'SECURITY_EVENT',
         details: e.details || {},
       }));
+      combined = [...combined, ...mappedEvents];
     }
 
     if (logsData?.items && logsData.items.length > 0) {
-      return logsData.items.map((log) => ({
+      const mappedLogs = logsData.items.map((log: any) => ({
         id: `log-${log.id}`,
         created_at: log.created_at,
         severity: log.risk_level || (log.risk_score > 80 ? 'CRITICAL' : log.risk_score > 60 ? 'HIGH' : log.risk_score > 40 ? 'MEDIUM' : 'LOW'),
@@ -53,9 +56,11 @@ export default function LiveSecurityFeedPage() {
         details: log.risk_breakdown || (log.details ? { message: log.details } : { action_taken: log.action_taken, risk_score: log.risk_score }),
         riskScore: log.risk_score,
       }));
+      combined = [...combined, ...mappedLogs];
     }
 
-    return [];
+    // Sort combined by created_at descending (newest first)
+    return combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [eventsData?.items, logsData?.items]);
 
   const totalEventsCount = eventsData?.total || logsData?.total || normalizedEvents.length;

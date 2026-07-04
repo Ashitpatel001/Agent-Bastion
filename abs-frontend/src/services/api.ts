@@ -233,6 +233,9 @@ export class AbsApiClient {
   async getSecurityEvents(page: number = 1, pageSize: number = 50): Promise<SecurityEventListResponse> {
     return this.request(`/api/v1/security-events?page=${page}&page_size=${pageSize}`);
   }
+  async simulateTraffic(): Promise<any> {
+    return this.request('/api/v1/sandbox/simulate-traffic', { method: 'POST' });
+  }
 }
 
 export const apiClient = AbsApiClient.create();

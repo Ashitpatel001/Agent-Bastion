@@ -11,7 +11,7 @@ export function useSecurityLogs(page: number = 1, pageSize: number = 50) {
     queryKey: ['securityLogs', page, pageSize],
     queryFn: () => AbsApiClient.create(apiKey!).getSecurityLogs(page, pageSize),
     enabled: !!apiKey,
-    refetchInterval: 10000,
+    refetchInterval: 1000,
   });
 }
 
@@ -22,7 +22,7 @@ export function useSecurityStats() {
     queryKey: ['securityStats'],
     queryFn: () => AbsApiClient.create(apiKey!).getSecurityStats(),
     enabled: !!apiKey,
-    refetchInterval: 15000,
+    refetchInterval: 1000,
   });
 }
 
@@ -96,7 +96,7 @@ export function useHealthCheck() {
   return useQuery({
     queryKey: ['healthCheck'],
     queryFn: () => AbsApiClient.create().healthCheck(),
-    refetchInterval: 30000,
+    refetchInterval: 1000,
   });
 }
 
@@ -118,7 +118,7 @@ export function useIncidents(page: number = 1, pageSize: number = 50) {
     queryKey: ['incidents', page, pageSize],
     queryFn: () => AbsApiClient.create(apiKey!).getIncidents(page, pageSize),
     enabled: !!apiKey,
-    refetchInterval: 15000,
+    refetchInterval: 1000,
   });
 }
 
@@ -148,7 +148,7 @@ export function useAnalyticsTimeSeries(days: number = 30) {
     queryKey: ['analyticsTimeSeries', days],
     queryFn: () => AbsApiClient.create(apiKey!).getAnalyticsTimeSeries(days),
     enabled: !!apiKey,
-    refetchInterval: 30000,
+    refetchInterval: 1000,
   });
 }
 
@@ -158,7 +158,7 @@ export function useXaiLogs(page: number = 1, pageSize: number = 20, pendingOnly:
     queryKey: ['xaiLogs', page, pageSize, pendingOnly],
     queryFn: () => AbsApiClient.create(apiKey!).getXaiLogs(page, pageSize, pendingOnly),
     enabled: !!apiKey,
-    refetchInterval: 10000,
+    refetchInterval: 1000,
   });
 }
 
@@ -175,7 +175,7 @@ export function useSystemHealth() {
     queryKey: ['systemHealth'],
     queryFn: () => AbsApiClient.create(apiKey!).getSystemHealth(),
     enabled: !!apiKey,
-    refetchInterval: 30000,
+    refetchInterval: 1000,
   });
 }
 
@@ -185,8 +185,21 @@ export function useSecurityEvents(page: number = 1, pageSize: number = 50) {
     queryKey: ['securityEvents', page, pageSize],
     queryFn: () => AbsApiClient.create(apiKey!).getSecurityEvents(page, pageSize),
     enabled: !!apiKey,
-    refetchInterval: 5000,
+    refetchInterval: 1000,
   });
 }
 
+export function useSimulateTraffic() {
+  const { apiKey } = useAppStore();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => AbsApiClient.create(apiKey!).simulateTraffic(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['securityStats'] });
+      queryClient.invalidateQueries({ queryKey: ['incidents'] });
+      queryClient.invalidateQueries({ queryKey: ['securityLogs'] });
+      queryClient.invalidateQueries({ queryKey: ['analyticsTimeSeries'] });
+    }
+  });
+}
 

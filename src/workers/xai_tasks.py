@@ -223,9 +223,8 @@ async def _generate_explanation_llm(payload: Dict[str, Any]) -> str:
     except Exception as exc:
         logger.exception("Groq XAI generation failed: %s", exc)
         return _template_fallback(payload)
-# ---------------------------------------------------------------------------
+
 # Celery Tasks
-# ---------------------------------------------------------------------------
 
 @shared_task(
     bind=True,

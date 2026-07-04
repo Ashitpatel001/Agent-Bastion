@@ -77,7 +77,46 @@ export default function Home() {
           </div>
         </div>
       </section>
-      
+      {/* How it works Section */}
+      <section id="how-it-works" className="py-24 bg-background border-t border-border/40">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+              How ABSs Works
+            </h2>
+            <p className="mt-4 text-lg text-muted-foreground">
+              A transparent proxy layer that intercepts, analyzes, and sanitizes agent traffic in real-time.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="relative p-8 border border-border/40 rounded-2xl bg-zinc-950/50">
+              <div className="text-6xl font-bold text-primary/10 absolute -top-4 -right-2">01</div>
+              <CheckCircle2 className="h-8 w-8 text-primary mb-4" />
+              <h3 className="text-xl font-bold mb-3">Route Agent Traffic</h3>
+              <p className="text-muted-foreground">
+                Configure your autonomous agent to route its HTTP requests and browser actions through the ABSs proxy endpoint.
+              </p>
+            </div>
+            <div className="relative p-8 border border-border/40 rounded-2xl bg-zinc-950/50">
+              <div className="text-6xl font-bold text-primary/10 absolute -top-4 -right-2">02</div>
+              <Shield className="h-8 w-8 text-primary mb-4" />
+              <h3 className="text-xl font-bold mb-3">Real-time Inspection</h3>
+              <p className="text-muted-foreground">
+                ABSs scans incoming and outgoing payloads for prompt injections, credential leaks, and blocks unapproved actions before they execute.
+              </p>
+            </div>
+            <div className="relative p-8 border border-border/40 rounded-2xl bg-zinc-950/50">
+              <div className="text-6xl font-bold text-primary/10 absolute -top-4 -right-2">03</div>
+              <Eye className="h-8 w-8 text-primary mb-4" />
+              <h3 className="text-xl font-bold mb-3">Monitor via Dashboard</h3>
+              <p className="text-muted-foreground">
+                Use the Live Security Feed to observe blocked threats, adjust security policies, and maintain a complete audit trail of agent behaviors.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="border-t border-border/40 py-12 bg-background text-center text-muted-foreground">
         <div className="flex items-center justify-center gap-2 mb-4">

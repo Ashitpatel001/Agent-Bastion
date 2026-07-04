@@ -46,9 +46,9 @@ ABSs employs a robust microservices architecture orchestrating FastAPI gateways,
 
 <!-- ARCHITECTURE PHOTO LOCATION -->
 <p align="center">
-  <img src="docs/assets/architecture-diagram.png" alt="ABSs System Architecture" width="100%">
+  <img src="![alt text](image.png)" alt="ABSs System Architecture" width="100%">
   <br>
-  <em>ABSs System Architecture. (Place Architecture Photo Here)</em>
+  <em>ABSs System Architecture.</em>
 </p>
 <!-- /ARCHITECTURE PHOTO LOCATION -->
 

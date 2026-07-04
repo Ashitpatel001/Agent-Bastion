@@ -7,7 +7,7 @@
 <h4 align="center">Enterprise-Grade Zero-Trust Security Proxy for Autonomous AI Web Agents</h4>
 
 <p align="center">
-  <a href="https://github.com/ShubhCodesHere/ABSs/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen"></a>
+  <a href="https://github.com/Ashitpatel001/Agent-Bastion/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg"></a>
   <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-15-black"></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.111+-009688"></a>
@@ -48,7 +48,6 @@ ABSs employs a robust microservices architecture orchestrating FastAPI gateways,
 <p align="center">
   <img src="./docs/assets/image.png" alt="ABSs System Architecture" width="95%">
   <br>
-  <em>ABSs System Architecture.</em>
 </p>
 <!-- /ARCHITECTURE PHOTO LOCATION -->
 

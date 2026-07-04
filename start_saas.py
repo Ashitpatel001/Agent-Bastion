@@ -20,7 +20,7 @@ def stream_logs(process, prefix, color_code="\033[36m"):
 
 def main():
     print("=" * 70)
-    print(" 🚀 ABSs v2.0 — CLOUDFLARE / STRIPE-LEVEL ZERO-TRUST SaaS PLATFORM")
+    print(" ABSs v2.0 — CLOUDFLARE / STRIPE-LEVEL ZERO-TRUST SaaS PLATFORM")
     print("=" * 70)
     print(" Verifying database schema and seeding SOC real-time telemetry...")
     
@@ -54,10 +54,10 @@ def main():
         threading.Thread(target=stream_logs, args=(fe_process, "[FRONTEND UI]  |", "\033[36m"), daemon=True).start()
 
         print("\n" + "=" * 70)
-        print(" ✅ PLATFORM ONLINE AND LINED UP FOR REAL-TIME TELEMETRY")
-        print(" 🔗 Frontend UI : http://localhost:3000")
-        print(" 🔗 API Gateway : http://localhost:8000/docs")
-        print(" 🔐 SOC Login   : admin@abss.internal | Password: Admin123!")
+        print(" PLATFORM ONLINE AND LINED UP FOR REAL-TIME TELEMETRY")
+        print(" Frontend UI : http://localhost:3000")
+        print(" API Gateway : http://localhost:8000/docs")
+        print(" SOC Login   : admin@abss.internal | Password: Admin123!")
         print("=" * 70)
         print(" Press Ctrl+C to terminate all services safely.\n")
 

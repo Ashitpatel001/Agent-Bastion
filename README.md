@@ -133,7 +133,7 @@ The repository includes a dedicated `attack_server.py` designed to test autonomo
 - **Distributed Workers:** Celery, Redis
 - **Database:** PostgreSQL (SQLAlchemy Asyncio, asyncpg)
 - **Agent Engine:** Browser-Use, Playwright, LangChain (Groq, OpenAI)
-- **Monitoring & Internal Dashboards:**Customised Designs, Flower
+- **Monitoring & Internal Dashboards:** Customised Designs, Flower
 
 ---
 

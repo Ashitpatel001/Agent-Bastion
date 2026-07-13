@@ -64,15 +64,15 @@ services:
       dockerfile: Dockerfile
       target: deps
     container_name: abs-db-init
-    command: ["python", "init_db.py"]
+    command: ["python", "-c", "import asyncio; from db.database import init_db; asyncio.run(init_db())"]
     environment:
       PYTHONPATH: /app/src:/app
       POSTGRES_HOST: postgres
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./src:/app/src
-      - ./init_db.py:/app/init_db.py
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,7 +94,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./src:/app/src
     depends_on:
@@ -127,7 +128,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./src:/app/src
       - agent_screenshots:/app/src/security/dashboard/screenshots
@@ -163,7 +165,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./src:/app/src
     depends_on:

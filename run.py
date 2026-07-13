@@ -44,7 +44,7 @@ def launch_all_in_one():
         # Start Secure Agent
         print("\n" + "=" * 60)
         print(" [AGENT]    | Initializing Secure Agent Execution...")
-        agent_cmd = [sys.executable, "main_secure.py"]
+        agent_cmd = [sys.executable, os.path.join("examples", "demo_standalone.py")]
         agent_process = subprocess.Popen(agent_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         threading.Thread(target=stream_logs, args=(agent_process, " [AGENT]    | "), daemon=True).start()
         
@@ -103,7 +103,7 @@ def start_dashboard():
 def run_secure_agent_default():
     print("\n🕵️  Running Secure Agent (Default Task)...")
     try:
-        subprocess.run([sys.executable, "main_secure.py"])
+        subprocess.run([sys.executable, os.path.join("examples", "demo_standalone.py")])
     except Exception as e:
         print(f" Error running agent: {e}")
     input("\nPress Enter to return to menu...")
@@ -116,17 +116,14 @@ def run_secure_agent_custom():
         return
     
     try:
-        subprocess.run([sys.executable, "main_secure.py", task])
+        subprocess.run([sys.executable, os.path.join("examples", "demo_standalone.py"), task])
     except Exception as e:
         print(f" Error running agent: {e}")
     input("\nPress Enter to return to menu...")
 
 def launch_saas_platform():
-    print("\n 🚀 Launching Cloudflare/Stripe-level Zero-Trust SaaS Platform...")
-    try:
-        subprocess.run([sys.executable, "start_saas.py"])
-    except Exception as e:
-        print(f" Error running SaaS Platform launcher: {e}")
+    print("\n 🚀 Enterprise SaaS platform is managed via Docker Compose:")
+    print("   👉 Run: docker compose up --build -d")
     input("\nPress Enter to return to menu...")
 
 def main_menu():

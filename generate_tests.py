@@ -61,15 +61,18 @@ templates = {
 }
 
 def generate_tests():
+    out_dir = os.path.join("tests", "fixtures", "vectors")
+    os.makedirs(out_dir, exist_ok=True)
     for i in range(6, 21):
         # Fall back to a generic template for indices over 10
         name_ext, content = templates.get(i, (f"generic_vector_{i}", f"<html><body><!-- Generic test template {i} --></body></html>"))
         filename = f"vector_{i}_{name_ext}.html"
+        filepath = os.path.join(out_dir, filename)
         
-        with open(filename, "w", encoding="utf-8") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
         
-        print(f"Created: {filename}")
+        print(f"Created: {filepath}")
 
 if __name__ == "__main__":
     generate_tests()

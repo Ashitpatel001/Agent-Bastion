@@ -32,8 +32,10 @@ env/
 *.db
 abs_security.db
 
-# Test attack vectors (not needed in production images)
+# Test attack vectors and demo scripts (not needed in production images)
 vector_*.html
+tests/
+examples/
 
 # Generated dashboard evidence (created at runtime)
 src/security/dashboard/screenshots/*

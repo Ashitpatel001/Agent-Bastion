@@ -25,9 +25,11 @@ HTML_TEMPLATE = """
 </html>
 """
 
+VECTORS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "vectors")
+
 @app.route('/')
 def home():
-    files = [f for f in os.listdir('.') if f.endswith('.html')]
+    files = [f for f in os.listdir(VECTORS_DIR) if f.endswith('.html')] if os.path.exists(VECTORS_DIR) else []
     return render_template_string(HTML_TEMPLATE, files=files)
 
 @app.route('/test/<path:filename>')
@@ -35,8 +37,9 @@ def serve_file(filename):
     if not filename.endswith('.html') or '..' in filename or filename.startswith('/'):
         abort(400)
     
-    if os.path.exists(filename):
-        return send_file(filename)
+    filepath = os.path.join(VECTORS_DIR, filename)
+    if os.path.exists(filepath):
+        return send_file(filepath)
     else:
         abort(404)
 

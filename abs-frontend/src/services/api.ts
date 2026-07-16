@@ -19,7 +19,6 @@ import {
   SecurityEventListResponse,
 } from '@/types';
 import { API_BASE_URL } from '@/lib/constants';
-import * as Mocks from './mock-data';
 
 export class AbsApiClient {
 
@@ -73,41 +72,8 @@ export class AbsApiClient {
     try {
       response = await fetch(url, config);
     } catch (error: any) {
-      // INTERCEPT NETWORK ERRORS (Backend Offline) AND RETURN MOCK DATA FOR DEMO PURPOSES
-      console.warn(`[ABSs API Interceptor] Backend unreachable for ${endpoint}, returning local mock data.`);
-      if (endpoint.includes('/api/v1/security/stats') || endpoint.includes('/api/v1/analytics/overview')) {
-        return Mocks.getMockSecurityStats() as T;
-      }
-      if (endpoint.includes('/api/v1/analytics/time-series')) {
-        return Mocks.getMockTimeSeries(30) as T;
-      }
-      if (endpoint.includes('/api/v1/incidents')) {
-        return Mocks.getMockIncidents() as T;
-      }
-      if (endpoint.includes('/api/v1/security-events')) {
-        return Mocks.getMockSecurityEvents() as T;
-      }
-      if (endpoint.includes('/api/v1/security/logs')) {
-        return Mocks.getMockSecurityLogs() as T;
-      }
-      if (endpoint.includes('/api/v1/audit')) {
-        return Mocks.getMockXaiLogs() as T;
-      }
-      if (endpoint.includes('/api/v1/security/policies')) {
-        return Mocks.getMockActivePolicy() as T;
-      }
-      if (endpoint.includes('/api/v1/settings')) {
-        return Mocks.getMockSettings() as T;
-      }
-      if (endpoint.includes('/api/v1/reputation/check')) {
-        return {
-          url: 'target-domain.com',
-          is_safe: false,
-          trust_level: 'CRITICAL RISK',
-          details: 'Domain identified as malicious crypto-drainer in active threat intelligence databases. Action blocked.',
-        } as T;
-      }
-      throw new Error(`Network error and no mock data available: ${error.message}`);
+      console.error(`[ABSs API Error] Network error for ${endpoint}:`, error);
+      throw new Error(`Backend service unreachable (${endpoint}): ${error.message || 'Connection refused'}`);
     }
 
     let data;
@@ -147,51 +113,20 @@ export class AbsApiClient {
       throw new Error(errorMessage);
     }
 
-    // INTELLIGENT EMPTY STATE SIMULATION
-    // If the real backend is connected but empty, inject mock data to make the dashboard lively.
-    // The moment the real backend has data (length > 0), it will swap to the real data automatically.
+    // Ensure compatibility if backend sends 'total_events' instead of 'total_actions'
     if (endpoint.includes('/api/v1/security/stats') || endpoint.includes('/api/v1/analytics/overview')) {
       const stats = data as any;
-      if (!stats || (stats.total_actions === 0 && stats.total_events === 0) || (!stats.total_actions && !stats.total_events)) {
-        return Mocks.getMockSecurityStats() as T;
-      }
-      // Ensure compatibility if backend sends 'total_events' instead of 'total_actions'
-      if (stats.total_events !== undefined && stats.total_actions === undefined) {
-        stats.total_actions = stats.total_events;
-        
-        // Calculate blocked actions from risk distribution if available
-        let blocked = 0;
-        if (stats.risk_distribution) {
-          blocked = (stats.risk_distribution['CRITICAL'] || 0) + (stats.risk_distribution['HIGH'] || 0);
+      if (stats && typeof stats === 'object') {
+        if (stats.total_events !== undefined && stats.total_actions === undefined) {
+          stats.total_actions = stats.total_events;
+          let blocked = 0;
+          if (stats.risk_distribution) {
+            blocked = (stats.risk_distribution['CRITICAL'] || 0) + (stats.risk_distribution['HIGH'] || 0);
+          }
+          stats.blocked_actions = blocked || stats.blocked_events || 0;
+          stats.safe_actions = stats.total_events - stats.blocked_actions;
+          stats.active_sessions = stats.active_sessions ?? 0;
         }
-        
-        stats.blocked_actions = blocked || stats.blocked_events || 0;
-        stats.safe_actions = stats.total_events - stats.blocked_actions;
-        stats.active_sessions = 0; // Explicitly map to 0 when backend does not track active sessions
-      }
-    }
-
-    if (endpoint.includes('/api/v1/incidents')) {
-      if (!data || !data.items || data.items.length === 0) {
-        return Mocks.getMockIncidents() as T;
-      }
-    }
-
-    if (endpoint.includes('/api/v1/security-events')) {
-      if (!data || !data.items || data.items.length === 0) {
-        return Mocks.getMockSecurityEvents() as T;
-      }
-    }
-
-    if (endpoint.includes('/api/v1/security/logs')) {
-      if (!data || !data.items || data.items.length === 0) {
-        return Mocks.getMockSecurityLogs() as T;
-      }
-    }
-
-    if (endpoint.includes('/api/v1/analytics/time-series')) {
-      if (!data || !data.data || data.data.length === 0) {
-        return Mocks.getMockTimeSeries(30) as T;
       }
     }
 
@@ -221,6 +156,24 @@ export class AbsApiClient {
   public async cancelAgentTask(jobId: string): Promise<Record<string, unknown>> {
     return this.fetch<Record<string, unknown>>(`/api/v1/agent/cancel/${jobId}`, {
       method: 'POST',
+    });
+  }
+
+  public async retryAgentTask(jobId: string): Promise<Record<string, unknown>> {
+    return this.fetch<Record<string, unknown>>(`/api/v1/agents/${jobId}/retry`, {
+      method: 'POST',
+    });
+  }
+
+  public async getDxQuickstart(): Promise<Record<string, any>> {
+    return this.fetch<Record<string, any>>('/api/v1/dx/quickstart', {
+      method: 'GET',
+    });
+  }
+
+  public async getDxOverview(): Promise<Record<string, any>> {
+    return this.fetch<Record<string, any>>('/api/v1/dx/overview', {
+      method: 'GET',
     });
   }
 
@@ -317,6 +270,34 @@ export class AbsApiClient {
   }
   async simulateTraffic(): Promise<any> {
     return this.request('/api/v1/sandbox/simulate-traffic', { method: 'POST' });
+  }
+
+  async getInfrastructureStatus(): Promise<any> {
+    return this.request('/api/v1/system/infrastructure');
+  }
+
+  async getWorkerObservability(): Promise<any> {
+    return this.request('/api/v1/observability/workers');
+  }
+
+  async getTaskObservability(): Promise<any> {
+    return this.request('/api/v1/observability/tasks');
+  }
+
+  async getSecurityObservability(days: number = 7): Promise<any> {
+    return this.request(`/api/v1/observability/security?days=${days}`);
+  }
+
+  async getTenantObservability(): Promise<any> {
+    return this.request('/api/v1/observability/tenants');
+  }
+
+  async getAuditTrail(page: number = 1, pageSize: number = 50): Promise<any> {
+    return this.request(`/api/v1/observability/audit-trail?limit=${pageSize}&offset=${(page - 1) * pageSize}`);
+  }
+
+  async getObservabilityMetrics(): Promise<any> {
+    return this.request('/api/v1/observability/metrics');
   }
 }
 

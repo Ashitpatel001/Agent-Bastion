@@ -26,8 +26,18 @@ import sys
 # Ensure project root is on the path.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Force SQLite in-memory for testing — no files created.
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+
+import pytest
+@pytest.mark.asyncio
+async def test_db_layer_verification():
+    await run_tests()
 
 
 async def run_tests():
@@ -255,10 +265,8 @@ async def run_tests():
     print(f" Results: {passed} passed, {failed} failed, {passed + failed} total")
     print("=" * 70)
 
-    if failed > 0:
-        sys.exit(1)
-    else:
-        print("\n 🎉 Component 1 (Database & Multi-Tenant Data Layer) verified!\n")
+    assert failed == 0, f"{failed} test checks failed in run_tests()"
+    print("\n 🎉 Component 1 (Database & Multi-Tenant Data Layer) verified!\n")
 
 
 if __name__ == "__main__":

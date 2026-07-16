@@ -30,7 +30,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -58,12 +57,15 @@ class ActionTaken(str, enum.Enum):
 
 
 class SessionStatus(str, enum.Enum):
-    """Lifecycle status of an agent job execution."""
+    """Lifecycle status of an agent job execution (Phase 4)."""
+    CREATED = "CREATED"
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    RETRYING = "RETRYING"
+    TIMED_OUT = "TIMED_OUT"
 
 
 class TenantTier(str, enum.Enum):
@@ -74,12 +76,16 @@ class TenantTier(str, enum.Enum):
 
 
 class UserRole(str, enum.Enum):
-    """Role-based access control for users within a tenant."""
+    """Role-based access control for users within a tenant (Phase 2 RBAC)."""
     OWNER = "OWNER"
     ADMIN = "ADMIN"
+    OPERATOR = "OPERATOR"
     SECURITY_ANALYST = "SECURITY_ANALYST"
     DEVELOPER = "DEVELOPER"
     VIEWER = "VIEWER"
+    admin = "admin"
+    operator = "operator"
+    viewer = "viewer"
 
 
 class IncidentSeverity(str, enum.Enum):
@@ -199,20 +205,23 @@ class Policy(Base):
     is_active = Column(Boolean, nullable=False, default=True)
 
     # --- Rule sets (stored as JSON arrays) ---
-    blocked_domains = Column(SQLiteJSON, nullable=False, default=lambda: [
+    blocked_domains = Column(JSON, nullable=False, default=lambda: [
         "*.ru", "*.cn", "bit.ly", "tinyurl.com", "pastebin.com",
     ])
-    blocked_input_patterns = Column(SQLiteJSON, nullable=False, default=lambda: [
+    blocked_input_patterns = Column(JSON, nullable=False, default=lambda: [
         "password", "ssn", "credit_card", "secret_key",
     ])
-    blocked_actions = Column(SQLiteJSON, nullable=False, default=list)
+    blocked_actions = Column(JSON, nullable=False, default=list)
 
     # --- Thresholds ---
     max_risk_tolerance = Column(Integer, nullable=False, default=75)
     require_human_approval = Column(Boolean, nullable=False, default=False)
 
     # --- Trusted domain overrides (tenant can add their own) ---
-    trusted_domains = Column(SQLiteJSON, nullable=False, default=list)
+    trusted_domains = Column(JSON, nullable=False, default=list)
+
+    # --- Rate limiting configuration (Task 3.3) ---
+    rate_limits = Column(JSON, nullable=False, default=lambda: {"requests_per_minute": 200, "burst_limit": 50})
 
     # --- Metadata ---
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -253,16 +262,28 @@ class AgentSession(Base):
         nullable=False,
         index=True,
     )
+    user_id = Column(
+        String(32),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    celery_task_id = Column(String(64), nullable=True, index=True)
+    queue_name = Column(String(64), nullable=False, default="agents")
+    priority = Column(Integer, nullable=False, default=5)
+    retry_count = Column(Integer, nullable=False, default=0)
+    max_retries = Column(Integer, nullable=False, default=3)
     status = Column(
         Enum(SessionStatus),
         nullable=False,
-        default=SessionStatus.QUEUED,
+        default=SessionStatus.CREATED,
     )
     task_prompt = Column(Text, nullable=False)
     target_url = Column(String(2048), nullable=True)
     result_summary = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     telemetry_events = Column(JSON, nullable=False, default=list)
+    lifecycle_events = Column(JSON, nullable=False, default=list)
 
     # Execution timestamps
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -271,10 +292,12 @@ class AgentSession(Base):
 
     # Relationships
     tenant = relationship("Tenant", back_populates="sessions")
+    user = relationship("User", foreign_keys=[user_id])
     audit_logs = relationship("AuditLog", back_populates="session", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_session_tenant_status", "tenant_id", "status"),
+        Index("ix_session_user_status", "user_id", "status"),
         Index("ix_session_created", "created_at"),
     )
 
@@ -322,7 +345,7 @@ class AuditLog(Base):
     action_taken = Column(Enum(ActionTaken), nullable=False, default=ActionTaken.ALLOWED)
 
     # --- Extended data ---
-    risk_breakdown = Column(SQLiteJSON, nullable=True)
+    risk_breakdown = Column(JSON, nullable=True)
     screenshot_path = Column(String(512), nullable=True)
     xai_explanation = Column(Text, nullable=True)
     xai_pending = Column(Boolean, nullable=False, default=False)
@@ -377,6 +400,15 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 
     tenant = relationship("Tenant", back_populates="users")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def hashed_password(self) -> str:
+        return self.password_hash
+
+    @hashed_password.setter
+    def hashed_password(self, value: str) -> None:
+        self.password_hash = value
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "email", name="uq_user_tenant_email"),
@@ -385,6 +417,37 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User(id={self.id!r}, email={self.email!r}, role={self.role})>"
+
+
+class RefreshToken(Base):
+    """
+    Rotatable single-use refresh tokens for JWT session management (Task 2.3).
+    Tracks token family to prevent and detect replay attacks:
+    If a reused refresh token is detected, the entire token family is immediately revoked.
+    """
+    __tablename__ = "refresh_tokens"
+
+    id = Column(String(36), primary_key=True, default=_generate_uuid)
+    user_id = Column(
+        String(32),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    family_id = Column(String(36), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    is_revoked = Column(Boolean, nullable=False, default=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    user = relationship("User", back_populates="refresh_tokens")
+
+    __table_args__ = (
+        Index("ix_refresh_tokens_user_family", "user_id", "family_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken(id={self.id!r}, user_id={self.user_id!r}, is_revoked={self.is_revoked})>"
 
 
 class Organization(Base):
@@ -434,7 +497,7 @@ class APIKeyRecord(Base):
     name = Column(String(255), nullable=False)
     key_hash = Column(String(64), nullable=False, unique=True, index=True)
     key_prefix = Column(String(12), nullable=False)
-    scopes = Column(SQLiteJSON, nullable=False, default=lambda: ["*"])
+    scopes = Column(JSON, nullable=False, default=lambda: ["*"])
     is_active = Column(Boolean, nullable=False, default=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
@@ -476,14 +539,14 @@ class Incident(Base):
     severity = Column(Enum(IncidentSeverity), nullable=False, default=IncidentSeverity.MEDIUM)
     status = Column(Enum(IncidentStatus), nullable=False, default=IncidentStatus.OPEN)
     risk_score = Column(Integer, nullable=False, default=0)
-    mitre_ids = Column(SQLiteJSON, nullable=False, default=list)
+    mitre_ids = Column(JSON, nullable=False, default=list)
     assigned_to = Column(
         String(32),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     resolution = Column(Text, nullable=True)
-    labels = Column(SQLiteJSON, nullable=False, default=list)
+    labels = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
@@ -543,7 +606,7 @@ class IncidentTimeline(Base):
     )
     event_type = Column(String(64), nullable=False)
     description = Column(Text, nullable=False)
-    metadata_ = Column("metadata", SQLiteJSON, nullable=True)
+    metadata_ = Column("metadata", JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     incident = relationship("Incident", back_populates="timeline")
@@ -615,7 +678,7 @@ class SecurityEvent(Base):
     severity = Column(Enum(RiskLevel), nullable=False, default=RiskLevel.LOW)
     source = Column(String(255), nullable=True)
     details = Column(Text, nullable=True)
-    raw_data = Column(SQLiteJSON, nullable=True)
+    raw_data = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     tenant = relationship("Tenant")
@@ -651,7 +714,7 @@ class TenantSettings(Base):
     webhook_url = Column(String(2048), nullable=True)
     timezone = Column(String(64), nullable=False, default="UTC")
     data_retention_days = Column(Integer, nullable=False, default=90)
-    settings_json = Column(SQLiteJSON, nullable=False, default=dict)
+    settings_json = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 

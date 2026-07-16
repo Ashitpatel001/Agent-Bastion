@@ -16,7 +16,7 @@ Naming conventions:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 
@@ -91,6 +91,10 @@ class PolicyCreate(BaseModel):
         default=False,
         description="If true, high-risk actions require explicit human approval (future feature).",
     )
+    rate_limits: Dict[str, Any] = Field(
+        default_factory=lambda: {"requests_per_minute": 200, "burst_limit": 50},
+        description="Tenant-specific rate limit quotas (Task 3.3).",
+    )
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -106,6 +110,7 @@ class PolicyUpdate(BaseModel):
     trusted_domains: Optional[List[str]] = None
     max_risk_tolerance: Optional[int] = Field(default=None, ge=0, le=100)
     require_human_approval: Optional[bool] = None
+    rate_limits: Optional[Dict[str, Any]] = None
 
 
 class PolicyResponse(BaseModel):
@@ -119,6 +124,7 @@ class PolicyResponse(BaseModel):
     trusted_domains: List[str]
     max_risk_tolerance: int
     require_human_approval: bool
+    rate_limits: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
 
@@ -142,6 +148,22 @@ class AgentSessionCreate(BaseModel):
         max_length=2048,
         examples=["https://amazon.com"],
     )
+    priority: Optional[int] = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Task execution priority (1=highest, 10=lowest)"
+    )
+    queue_name: Optional[str] = Field(
+        default="agents",
+        description="Target worker queue (e.g. agents, priority_agents)"
+    )
+    max_retries: Optional[int] = Field(
+        default=3,
+        ge=0,
+        le=5,
+        description="Maximum retry attempts on failure"
+    )
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -150,17 +172,47 @@ class AgentSessionResponse(BaseModel):
     """Agent session info returned to the client."""
     id: str
     tenant_id: str
+    user_id: Optional[str] = None
+    celery_task_id: Optional[str] = None
     status: str
     task_prompt: str
     target_url: Optional[str]
-    result_summary: Optional[str]
-    error_message: Optional[str]
+    queue_name: str = "agents"
+    priority: int = 5
+    retry_count: int = 0
+    max_retries: int = 3
+    result_summary: Optional[str] = None
+    error_message: Optional[str] = None
     telemetry_events: list[dict] = []
+    lifecycle_events: list[dict] = []
     created_at: datetime
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class WorkerHealthResponse(BaseModel):
+    """Health and status of background worker infrastructure."""
+    status: str
+    active_workers: int
+    active_tasks: int
+    reserved_tasks: int
+    queues: list[str]
+    details: dict[str, Any] = {}
+
+
+class QueueStatsResponse(BaseModel):
+    """Real-time task queue statistics and lifecycle counts."""
+    total_sessions: int
+    queued: int
+    running: int
+    completed: int
+    failed: int
+    cancelled: int
+    retrying: int
+    timed_out: int
+    by_queue: dict[str, int] = {}
 
 
 # ============================================================================
@@ -568,11 +620,31 @@ class TenantSettingsResponse(BaseModel):
 # Risk & Reputation Schemas
 # ============================================================================
 
+class ActionMetadata(BaseModel):
+    """Restricted known keys for ActionRequest metadata (Task 1.8)."""
+    browser_version: Optional[str] = Field(default=None, max_length=128)
+    user_agent: Optional[str] = Field(default=None, max_length=512)
+    viewport: Optional[str] = Field(default=None, max_length=32)
+    tab_id: Optional[int] = Field(default=None, ge=0)
+    step_index: Optional[int] = Field(default=None, ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ActionRequest(BaseModel):
+    """Request body for submitting or checking an agent action."""
+    action_type: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    target_url: Optional[str] = Field(default=None, max_length=2048)
+    metadata: Optional[ActionMetadata] = None
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
 class RiskAssessmentRequest(BaseModel):
     """Request body for on-demand risk assessment."""
     url: Optional[str] = Field(default=None, max_length=2048)
-    content: Optional[str] = None
-    action: Optional[str] = None
+    content: Optional[str] = Field(default=None, max_length=65536)
+    action: Optional[str] = Field(default=None, max_length=128)
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -587,7 +659,7 @@ class RiskAssessmentResponse(BaseModel):
 
 class ReputationCheckRequest(BaseModel):
     """Request body for URL/domain reputation check."""
-    url: str = Field(..., max_length=2048)
+    url: str = Field(..., min_length=3, max_length=2048)
 
     model_config = ConfigDict(str_strip_whitespace=True)
 

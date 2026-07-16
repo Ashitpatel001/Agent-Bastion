@@ -43,9 +43,11 @@ load_dotenv()
 
 logger = get_task_logger(__name__)
 
+from api.config import settings
+
 # Constants
-AGENT_LLM_MODEL: str = os.getenv("AGENT_LLM_MODEL", "llama-3.3-70b-versatile")
-AGENT_MAX_STEPS: int = int(os.getenv("AGENT_MAX_STEPS", "25"))
+AGENT_LLM_MODEL: str = settings.AGENT_LLM_MODEL
+AGENT_MAX_STEPS: int = settings.AGENT_MAX_STEPS
 
 # Async ↔ Sync Bridge
 def _run_async(coro: Coroutine) -> Any:
@@ -71,12 +73,10 @@ async def _update_session(
     status: str,
     result_summary: Optional[str] = None,
     error_message: Optional[str] = None,
+    celery_task_id: Optional[str] = None,
 ) -> None:
     """
-    Update the AgentSession status in the database.
-
-    Uses get_db_context() (standalone context manager) since we're
-    outside a FastAPI request.
+    Update the AgentSession status and lifecycle events in the database.
     """
     from db.database import get_db_context
     from db import crud
@@ -90,6 +90,7 @@ async def _update_session(
             status=SessionStatus(status),
             result_summary=result_summary,
             error_message=error_message,
+            celery_task_id=celery_task_id,
         )
 
 
@@ -97,7 +98,7 @@ async def _get_session_details(
     session_id: str, tenant_id: str
 ) -> Optional[Dict[str, Any]]:
     """
-    Fetch the session's task_prompt and target_url from the DB.
+    Fetch the session's task_prompt, target_url, user_id, and retry settings from the DB.
     """
     from db.database import get_db_context
     from db import crud
@@ -110,8 +111,26 @@ async def _get_session_details(
             return {
                 "task_prompt": session.task_prompt,
                 "target_url": session.target_url,
+                "user_id": session.user_id,
+                "max_retries": session.max_retries if session.max_retries is not None else 3,
+                "celery_task_id": session.celery_task_id,
             }
     return None
+
+
+def _check_memory_usage(threshold_percent: float = 92.0) -> bool:
+    """
+    Resource protection hook (Task 4.5): Check if system virtual memory is within safe limits.
+    """
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        if mem.percent > threshold_percent:
+            logger.warning("High system memory usage threshold reached: %f%% > %f%%", mem.percent, threshold_percent)
+            return False
+    except ImportError:
+        pass
+    return True
 
 
 async def _count_active_sessions(tenant_id: str) -> int:
@@ -280,22 +299,20 @@ async def _execute_secure_agent(
     return _extract_agent_summary(result)
 
 
-import os
-
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
-AGENT_LLM_MODEL = os.getenv("AGENT_LLM_MODEL", "llama-3.3-70b-versatile")
+LLM_PROVIDER = settings.LLM_PROVIDER.lower()
+AGENT_LLM_MODEL = settings.AGENT_LLM_MODEL
 
 
 def _build_agent_llm():
-    if os.getenv("OPENAI_API_KEY"):
+    if settings.OPENAI_API_KEY:
         from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model="gpt-4o")
+        llm = ChatOpenAI(model="gpt-4o", api_key=settings.OPENAI_API_KEY)
         object.__setattr__(llm, "provider", "openai")
         return llm
     
-    if os.getenv("GEMINI_API_KEY"):
+    if settings.GEMINI_API_KEY:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=settings.GEMINI_API_KEY)
         object.__setattr__(llm, "provider", "google")
         return llm
 
@@ -319,7 +336,7 @@ def _build_agent_llm():
 
     llm = ChatGroq(
         model=AGENT_LLM_MODEL,
-        api_key=os.getenv("GROQ_API_KEY", ""),
+        api_key=settings.GROQ_API_KEY,
     )
     object.__setattr__(llm, "provider", "groq")
     return llm
@@ -329,74 +346,61 @@ def _build_agent_llm():
 @shared_task(
     bind=True,
     name="workers.agent_tasks.run_agent_task",
-    max_retries=1,
-    default_retry_delay=10,
+    max_retries=3,
+    default_retry_delay=15,
     acks_late=True,
     queue="agents",
-    soft_time_limit=540,        # 9 min soft limit
-    time_limit=600,             # 10 min hard kill
+    soft_time_limit=300,        # 5 min soft limit
+    time_limit=360,             # 6 min hard kill
 )
 def run_agent_task(
     self,
     session_id: str,
     tenant_id: str,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Execute a SecureAgent job in the background.
-
-    Triggered by the /v1/agent/run API endpoint after creating a session.
-    The full agent lifecycle is managed here:
-      QUEUED → RUNNING → COMPLETED / FAILED
-
-    Args:
-        session_id: The AgentSession.id to execute.
-        tenant_id:  The Tenant.id that owns this session.
-
-    Returns:
-        Dict with status, session_id, and result_summary.
+    Execute a SecureAgent job with full Phase 4 orchestration and resource protection.
     """
     retries = getattr(self.request, "retries", 0) if hasattr(self, "request") else 0
+    celery_task_id = getattr(self.request, "id", None) if hasattr(self, "request") else None
     logger.info(
-        "Starting agent task: session=%s, tenant=%s (attempt %d/%d)",
-        session_id, tenant_id,
-        retries + 1, 2,
+        "Starting agent task: session=%s, tenant=%s, user=%s (attempt %d/max)",
+        session_id, tenant_id, user_id or "NONE",
+        retries + 1,
     )
 
-    # --- 0. Concurrency check ---
+    # --- 0. Memory & Concurrency Check (Task 4.5) ---
+    if not _check_memory_usage(threshold_percent=92.0):
+        logger.warning("Worker memory critical. Deferring task %s by 30 seconds.", session_id)
+        if hasattr(self, "retry"):
+            try:
+                raise self.retry(countdown=30)
+            except self.MaxRetriesExceededError:
+                pass
+
     try:
         max_concurrent = _run_async(_get_tenant_max_concurrent(tenant_id))
         active_count = _run_async(_count_active_sessions(tenant_id))
 
-        # Subtract 1 because this session is already counted as QUEUED
         if active_count > max_concurrent:
             logger.warning(
-                "Tenant %s exceeds concurrency limit (%d/%d). "
-                "Retrying in 30 seconds.",
+                "Tenant %s exceeds concurrency limit (%d/%d). Retrying in 30 seconds.",
                 tenant_id, active_count, max_concurrent,
             )
-            raise self.retry(countdown=30)
-    except self.MaxRetriesExceededError:
-        error_msg = (
-            f"Concurrency limit exceeded for tenant {tenant_id}. "
-            f"Maximum {max_concurrent} concurrent sessions allowed."
-        )
-        _run_async(
-            _update_session(
-                session_id, tenant_id, "FAILED",
-                error_message=error_msg,
-            )
-        )
-        return {"status": "failed", "session_id": session_id, "error": error_msg}
-    except Exception:
-        pass  # Non-critical — proceed with execution
+            if hasattr(self, "retry"):
+                raise self.retry(countdown=30)
+    except Exception as exc:
+        if type(exc).__name__ == "MaxRetriesExceededError":
+            error_msg = f"Concurrency limit exceeded for tenant {tenant_id}. Max {max_concurrent} allowed."
+            _run_async(_update_session(session_id, tenant_id, "FAILED", error_message=error_msg, celery_task_id=celery_task_id))
+            return {"status": "failed", "session_id": session_id, "error": error_msg}
 
     # --- 1. Fetch session details ---
     import time
     session_details = None
     for _attempt in range(5):
-        session_details = _run_async(
-            _get_session_details(session_id, tenant_id)
-        )
+        session_details = _run_async(_get_session_details(session_id, tenant_id))
         if session_details:
             break
         time.sleep(0.3)
@@ -412,10 +416,11 @@ def run_agent_task(
 
     task_prompt = session_details["task_prompt"]
     target_url = session_details.get("target_url")
+    max_retries_allowed = session_details.get("max_retries", 3)
 
     # --- 2. Mark session as RUNNING ---
     _run_async(
-        _update_session(session_id, tenant_id, "RUNNING")
+        _update_session(session_id, tenant_id, "RUNNING", celery_task_id=celery_task_id)
     )
 
     try:
@@ -434,14 +439,11 @@ def run_agent_task(
             _update_session(
                 session_id, tenant_id, "COMPLETED",
                 result_summary=result_summary[:4000] if result_summary else None,
+                celery_task_id=celery_task_id,
             )
         )
 
-        logger.info(
-            "Agent task completed: session=%s (%d chars result)",
-            session_id, len(result_summary or ""),
-        )
-
+        logger.info("Agent task completed: session=%s (%d chars result)", session_id, len(result_summary or ""))
         return {
             "status": "completed",
             "session_id": session_id,
@@ -449,32 +451,35 @@ def run_agent_task(
         }
 
     except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {str(exc)[:500]}"
+        exc_type = type(exc).__name__
         tb = traceback.format_exc()
-        logger.error(
-            "Agent task failed: session=%s\n%s",
-            session_id, tb,
-        )
+        is_timeout = "TimeLimitExceeded" in exc_type or "TimeoutError" in exc_type
 
-        # Mark session as FAILED
-        _run_async(
-            _update_session(
-                session_id, tenant_id, "FAILED",
-                error_message=error_msg,
-            )
-        )
+        if is_timeout:
+            error_msg = f"Task timed out after reaching time limit: {exc_type}"
+            logger.error("Agent task timed out: session=%s\n%s", session_id, tb)
+            _run_async(_update_session(session_id, tenant_id, "TIMED_OUT", error_message=error_msg, celery_task_id=celery_task_id))
+            return {"status": "timed_out", "session_id": session_id, "error": error_msg}
 
-        # Re-raise for Celery retry on first attempt
-        if hasattr(self, "retry") and retries < 1:
+        if hasattr(self, "retry") and retries < max_retries_allowed:
+            countdown = min(300, 15 * (2 ** retries))
+            logger.warning("Agent task failed (%s). Retrying in %ds (attempt %d/%d)...", exc_type, countdown, retries + 1, max_retries_allowed)
+            _run_async(_update_session(session_id, tenant_id, "RETRYING", error_message=f"Retrying ({retries+1}/{max_retries_allowed}): {str(exc)[:200]}", celery_task_id=celery_task_id))
             try:
-                raise self.retry(exc=exc)
-            except AttributeError:
-                pass # If self.retry isn't bound, just continue to return failed
+                raise self.retry(exc=exc, countdown=countdown)
+            except getattr(self, "MaxRetriesExceededError", Exception):
+                pass
+
+        # Dead-letter handling for terminal failure (Task 4.3)
+        error_msg = f"Dead-letter task failure [{exc_type}]: {str(exc)[:400]}"
+        logger.error("Agent task terminal failure (dead-letter): session=%s\n%s", session_id, tb)
+        _run_async(_update_session(session_id, tenant_id, "FAILED", error_message=error_msg, celery_task_id=celery_task_id))
 
         return {
             "status": "failed",
             "session_id": session_id,
             "error": error_msg,
+            "dead_letter": True,
         }
 
 
@@ -488,18 +493,18 @@ def cancel_agent_task(
     tenant_id: str,
 ) -> Dict[str, Any]:
     """
-    Mark an agent session as CANCELLED.
-
-    Note: This does NOT terminate a currently running agent — it only
-    updates the DB status. True cancellation requires cooperative
-    cancellation tokens in the SecureAgent (future enhancement via
-    Celery revoke + AbortableTask).
-
-    Args:
-        session_id: The AgentSession.id to cancel.
-        tenant_id:  The Tenant.id that owns this session.
+    Mark an agent session as CANCELLED and actively revoke/terminate running Celery worker task.
     """
     logger.info("Cancelling agent task: session=%s", session_id)
+
+    session_details = _run_async(_get_session_details(session_id, tenant_id))
+    if session_details and session_details.get("celery_task_id"):
+        try:
+            from workers.celery_app import celery_app
+            celery_app.control.revoke(session_details["celery_task_id"], terminate=True, signal="SIGTERM")
+            logger.info("Sent Celery revoke (SIGTERM) for task %s", session_details["celery_task_id"])
+        except Exception as e:
+            logger.warning("Failed to revoke Celery task: %s", e)
 
     _run_async(
         _update_session(

@@ -1,0 +1,51 @@
+# ============================================================
+# fail2ban Configuration for Agent-Bastion (Task 7.4)
+# Production Security Hardening
+# ============================================================
+
+[INCLUDES]
+before = paths-debian.conf
+
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+findtime = 60
+bantime = 1800
+maxretry = 10
+backend = auto
+usedns = warn
+logencoding = auto
+enabled = true
+action = iptables-multiport[name=%(__name__)s, port="http,https", protocol=tcp]
+
+# ── 1. Auth Brute Force Protection (Task 7.4) ───────────────
+# 10 failures in 60s → 30-min (1800s) ban
+[abs-auth]
+enabled  = true
+port     = http,https
+filter   = abs-auth
+logpath  = /var/log/caddy/access.log
+maxretry = 10
+findtime = 60
+bantime  = 1800
+
+# ── 2. Scanner Detection (Task 7.4) ─────────────────────────
+# 20 404s in 60s → 24-hr (86400s) ban
+[abs-scanner]
+enabled  = true
+port     = http,https
+filter   = abs-scanner
+logpath  = /var/log/caddy/access.log
+maxretry = 20
+findtime = 60
+bantime  = 86400
+
+# ── 3. HTTP Flood Protection (Task 7.4) ─────────────────────
+# 300 req/min (60s) → 1-hr (3600s) ban
+[abs-flood]
+enabled  = true
+port     = http,https
+filter   = abs-flood
+logpath  = /var/log/caddy/access.log
+maxretry = 300
+findtime = 60
+bantime  = 3600

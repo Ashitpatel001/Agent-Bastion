@@ -32,10 +32,9 @@ async def override_get_db():
             await session.rollback()
             raise
 
-app.dependency_overrides[get_db] = override_get_db
-
 @pytest.fixture(autouse=True)
 def setup_db():
+    app.dependency_overrides[get_db] = override_get_db
     # Setup tables
     async def init_tables():
         async with engine.begin() as conn:
@@ -48,15 +47,18 @@ def setup_db():
     async def drop_tables():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
-    
     asyncio.run(drop_tables())
+    app.dependency_overrides.clear()
 
 client = TestClient(app)
 
 def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "abs-proxy-api"}
+    data = response.json()
+    assert data["service"] == "abs-proxy-api"
+    assert data["status"] in ["ok", "degraded"]
+    assert "components" in data
 
 def test_tenant_registration_and_api_key():
     # 1. Register a tenant

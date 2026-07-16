@@ -66,6 +66,41 @@ export function useCancelAgentTask() {
   });
 }
 
+export function useRetryAgentTask() {
+  return useMutation({
+    mutationFn: (jobId: string) => {
+      const apiKey = useAppStore.getState().apiKey;
+      return AbsApiClient.create(apiKey || undefined).retryAgentTask(jobId);
+    },
+  });
+}
+
+export function useDxQuickstart() {
+  const apiKey = useAppStore((state) => state.apiKey);
+  return useQuery({
+    queryKey: ['dxQuickstart', apiKey],
+    queryFn: () => {
+      const currentKey = useAppStore.getState().apiKey;
+      return AbsApiClient.create(currentKey || undefined).getDxQuickstart();
+    },
+    enabled: !!apiKey,
+    refetchInterval: 10000,
+  });
+}
+
+export function useDxOverview() {
+  const apiKey = useAppStore((state) => state.apiKey);
+  return useQuery({
+    queryKey: ['dxOverview', apiKey],
+    queryFn: () => {
+      const currentKey = useAppStore.getState().apiKey;
+      return AbsApiClient.create(currentKey || undefined).getDxOverview();
+    },
+    enabled: !!apiKey,
+    refetchInterval: 5000,
+  });
+}
+
 export function useAgentStatus(jobId: string | null) {
   const apiKey = useAppStore((state) => state.apiKey);
 

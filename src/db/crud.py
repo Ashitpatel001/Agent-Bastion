@@ -16,7 +16,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Any, Dict
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +30,8 @@ from db.models import (
     SessionStatus,
     Tenant,
     TenantTier,
+    RefreshToken,
+    APIKeyRecord,
 )
 from db.schemas import (
     AuditLogCreate,
@@ -109,7 +111,7 @@ async def get_tenant_by_api_key(
 ) -> Optional[Tenant]:
     """
     Look up a tenant by their raw API key.
-    Used by the authentication middleware on every request.
+    Checks both legacy Tenant.api_key_hash AND granular APIKeyRecord table.
     """
     key_hash = _hash_api_key(raw_api_key)
     result = await db.execute(
@@ -118,7 +120,27 @@ async def get_tenant_by_api_key(
             Tenant.is_active == True,  # noqa: E712
         )
     )
-    return result.scalar_one_or_none()
+    tenant = result.scalar_one_or_none()
+    if tenant:
+        return tenant
+
+    # Check APIKeyRecord table (Task 2.4)
+    res = await db.execute(
+        select(APIKeyRecord).where(
+            APIKeyRecord.key_hash == key_hash,
+            APIKeyRecord.is_active == True,  # noqa: E712
+        )
+    )
+    record = res.scalar_one_or_none()
+    if record and record.tenant_id:
+        # Check expiration if set
+        if record.expires_at:
+            exp_time = record.expires_at.replace(tzinfo=timezone.utc) if record.expires_at.tzinfo is None else record.expires_at
+            if exp_time < datetime.now(timezone.utc):
+                return None
+        return await get_tenant_by_id(db, record.tenant_id)
+
+    return None
 
 
 async def get_tenant_by_id(
@@ -129,6 +151,77 @@ async def get_tenant_by_id(
         select(Tenant).where(Tenant.id == tenant_id)
     )
     return result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# Refresh Token Operations (Phase 2 Task 2.3)
+# ---------------------------------------------------------------------------
+def _hash_token(raw_token: str) -> str:
+    """Hash a raw token with SHA-256 for secure storage."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+async def create_refresh_token_record(
+    db: AsyncSession,
+    token_id: str,
+    user_id: str,
+    family_id: str,
+    raw_refresh_token: str,
+    expires_at: datetime
+) -> RefreshToken:
+    """Create a new RefreshToken entry in the database."""
+    token_hash = _hash_token(raw_refresh_token)
+    db_token = RefreshToken(
+        id=token_id,
+        user_id=user_id,
+        family_id=family_id,
+        token_hash=token_hash,
+        is_revoked=False,
+        expires_at=expires_at
+    )
+    db.add(db_token)
+    await db.commit()
+    await db.refresh(db_token)
+    return db_token
+
+
+async def get_refresh_token_by_id(
+    db: AsyncSession, token_id: str
+) -> Optional[RefreshToken]:
+    """Retrieve a RefreshToken row by token ID / JTI."""
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.id == token_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def revoke_refresh_token_family(
+    db: AsyncSession, family_id: str
+) -> int:
+    """Revoke all tokens in a family upon detecting reuse/replay attacks."""
+    result = await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.family_id == family_id)
+        .values(is_revoked=True)
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
+async def revoke_user_refresh_tokens(
+    db: AsyncSession, user_id: str
+) -> int:
+    """Revoke all active refresh tokens for a user (e.g. on logout or password change)."""
+    result = await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.is_revoked == False  # noqa: E712
+        )
+        .values(is_revoked=True)
+    )
+    await db.commit()
+    return result.rowcount or 0
 
 
 async def get_tenant_by_email(
@@ -220,6 +313,7 @@ async def create_policy(
         trusted_domains=data.trusted_domains,
         max_risk_tolerance=data.max_risk_tolerance,
         require_human_approval=data.require_human_approval,
+        rate_limits=data.rate_limits,
     )
     db.add(policy)
     await db.flush()
@@ -260,16 +354,35 @@ async def create_session(
     tenant_id: str,
     task_prompt: str,
     target_url: Optional[str] = None,
+    user_id: Optional[str] = None,
+    queue_name: str = "agents",
+    priority: int = 5,
+    max_retries: int = 3,
+    celery_task_id: Optional[str] = None,
 ) -> AgentSession:
-    """Create a new agent session in QUEUED status."""
+    """Create a new agent session in CREATED/QUEUED status with full lifecycle tracking."""
+    now_str = datetime.now(timezone.utc).isoformat()
+    init_event = {
+        "from": None,
+        "to": SessionStatus.QUEUED.value,
+        "timestamp": now_str,
+        "reason": "Task submitted via API"
+    }
     session = AgentSession(
         tenant_id=tenant_id,
+        user_id=user_id,
         task_prompt=task_prompt,
         target_url=target_url,
+        queue_name=queue_name,
+        priority=priority,
+        max_retries=max_retries,
+        celery_task_id=celery_task_id,
+        status=SessionStatus.QUEUED,
+        lifecycle_events=[init_event]
     )
     db.add(session)
     await db.flush()
-    logger.info("Created session %s for tenant %s", session.id, tenant_id)
+    logger.info("Created session %s for tenant %s (queue=%s, priority=%d)", session.id, tenant_id, queue_name, priority)
     return session
 
 
@@ -280,8 +393,9 @@ async def update_session_status(
     status: SessionStatus,
     result_summary: Optional[str] = None,
     error_message: Optional[str] = None,
+    celery_task_id: Optional[str] = None,
 ) -> Optional[AgentSession]:
-    """Update the status of an agent session with tenant isolation."""
+    """Update the status of an agent session with tenant isolation and explicit transition tracking."""
     result = await db.execute(
         select(AgentSession).where(
             AgentSession.id == session_id,
@@ -292,21 +406,106 @@ async def update_session_status(
     if not session:
         return None
 
+    old_status = session.status.value if session.status else "UNKNOWN"
     session.status = status
     now = datetime.now(timezone.utc)
 
-    if status == SessionStatus.RUNNING:
+    if celery_task_id:
+        session.celery_task_id = celery_task_id
+
+    if status == SessionStatus.RUNNING and not session.started_at:
         session.started_at = now
-    elif status in (SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED):
+    elif status in (SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED, SessionStatus.TIMED_OUT):
         session.completed_at = now
+    elif status == SessionStatus.QUEUED:
+        session.completed_at = None
+        session.error_message = None
+
+    if status == SessionStatus.RETRYING:
+        session.retry_count = (session.retry_count or 0) + 1
 
     if result_summary is not None:
         session.result_summary = result_summary
     if error_message is not None:
         session.error_message = error_message
 
+    # Track lifecycle transition explicitly (Task 1 & Task 7)
+    events = list(session.lifecycle_events) if session.lifecycle_events else []
+    events.append({
+        "from": old_status,
+        "to": status.value,
+        "timestamp": now.isoformat(),
+        "reason": result_summary or error_message or f"Transitioned to {status.value}",
+        "retry_count": session.retry_count
+    })
+    session.lifecycle_events = events
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(session, "lifecycle_events")
+
+    # Record Phase 6 Prometheus Task & Lifecycle Metrics
+    try:
+        from security.metrics import record_task_submission, record_task_duration, abs_task_retries_total, abs_dead_letter_tasks_total
+        record_task_submission(session.tenant_id, session.queue_name or "default", status.value)
+        if status in (SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED, SessionStatus.TIMED_OUT) and session.started_at:
+            duration = (now - session.started_at).total_seconds()
+            record_task_duration(session.tenant_id, session.queue_name or "default", status.value, duration)
+        if status == SessionStatus.RETRYING:
+            abs_task_retries_total.labels(tenant_id=session.tenant_id or "unknown", queue_name=session.queue_name or "default").inc()
+        if status in (SessionStatus.FAILED, SessionStatus.TIMED_OUT) and session.retry_count and session.retry_count >= 3:
+            abs_dead_letter_tasks_total.labels(tenant_id=session.tenant_id or "unknown", queue_name=session.queue_name or "default", reason=status.value).inc()
+    except Exception:
+        pass
+
     await db.flush()
     return session
+
+
+async def count_active_sessions(
+    db: AsyncSession, tenant_id: str
+) -> int:
+    """Count sessions currently in QUEUED, RUNNING, or RETRYING status for a tenant."""
+    result = await db.execute(
+        select(func.count(AgentSession.id)).where(
+            AgentSession.tenant_id == tenant_id,
+            AgentSession.status.in_([SessionStatus.QUEUED, SessionStatus.RUNNING, SessionStatus.RETRYING]),
+        )
+    )
+    return result.scalar_one()
+
+
+async def get_queue_statistics(
+    db: AsyncSession, tenant_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Gather real-time task statistics grouped by status and queue (Task 8 & 9)."""
+    query = select(AgentSession.status, func.count(AgentSession.id)).group_by(AgentSession.status)
+    if tenant_id:
+        query = query.where(AgentSession.tenant_id == tenant_id)
+
+    status_result = await db.execute(query)
+    status_counts = {row[0].value if hasattr(row[0], "value") else str(row[0]): int(row[1]) for row in status_result.all()}
+
+    queue_query = select(AgentSession.queue_name, func.count(AgentSession.id)).group_by(AgentSession.queue_name)
+    if tenant_id:
+        queue_query = queue_query.where(AgentSession.tenant_id == tenant_id)
+
+    queue_result = await db.execute(queue_query)
+    queue_counts = {str(row[0] or "agents"): int(row[1]) for row in queue_result.all()}
+
+    total_sessions = sum(status_counts.values())
+
+    return {
+        "total_sessions": total_sessions,
+        "queued": status_counts.get("QUEUED", 0) + status_counts.get("CREATED", 0),
+        "running": status_counts.get("RUNNING", 0),
+        "completed": status_counts.get("COMPLETED", 0),
+        "failed": status_counts.get("FAILED", 0),
+        "cancelled": status_counts.get("CANCELLED", 0),
+        "retrying": status_counts.get("RETRYING", 0),
+        "timed_out": status_counts.get("TIMED_OUT", 0),
+        "by_queue": queue_counts
+    }
+
 
 async def add_telemetry_event(
     db: AsyncSession,
@@ -433,6 +632,24 @@ async def create_audit_log(
     )
     db.add(log)
     await db.flush()
+
+    # Record Phase 6 Prometheus Security & Action Metrics
+    try:
+        from security.metrics import abs_agent_actions_total, record_security_event_metric
+        abs_agent_actions_total.labels(
+            tenant_id=data.tenant_id or "anonymous",
+            action_type=data.event_type or "general",
+            verdict=log.action_taken.value if log.action_taken else "ALLOWED"
+        ).inc()
+        if log.action_taken in (ActionTaken.BLOCKED, ActionTaken.FLAGGED) or (log.risk_score and log.risk_score >= 50):
+            record_security_event_metric(
+                data.tenant_id or "anonymous",
+                data.event_type or "security_violation",
+                "HIGH" if (log.risk_score and log.risk_score >= 75) else "MEDIUM"
+            )
+    except Exception:
+        pass
+
     return log
 
 

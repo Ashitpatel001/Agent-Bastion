@@ -10,58 +10,35 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import StaticPool, NullPool
 
-load_dotenv()
+from api.config import settings
 
 logger = logging.getLogger("db.database")
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-# Build DATABASE_URL from individual POSTGRES_* env vars (handles special
-# characters in passwords via URL encoding) OR use an explicit DATABASE_URL.
-_explicit_url = os.getenv("DATABASE_URL")
-_use_sqlite = os.getenv("USE_SQLITE", "false").lower() == "true" or (os.name == "nt" and not _explicit_url)
-
-if _explicit_url and not _use_sqlite:
-    DATABASE_URL: str = _explicit_url
-elif not _use_sqlite:
-    _pg_user = os.getenv("POSTGRES_USER")
-    _pg_pass = os.getenv("POSTGRES_PASSWORD")
-    _pg_host = os.getenv("POSTGRES_HOST", "localhost")
-    _pg_port = os.getenv("POSTGRES_PORT", "5432")
-    _pg_db   = os.getenv("POSTGRES_DB")
-
-    if _pg_user and _pg_pass and _pg_db and _pg_host != "localhost":
-        # URL-encode password to safely handle @, :, /, etc.
-        DATABASE_URL = (
-            f"postgresql+asyncpg://{quote_plus(_pg_user)}:{quote_plus(_pg_pass)}"
-            f"@{_pg_host}:{_pg_port}/{_pg_db}"
-        )
-    else:
-        DATABASE_URL = "sqlite+aiosqlite:///./abs_security.db"
-else:
-    # Default: aiosqlite for local dev (free, zero-config).
-    DATABASE_URL = "sqlite+aiosqlite:///./abs_security.db"
+DATABASE_URL: str = settings.get_database_url()
 
 # SQLite requires special pooling to allow concurrent async access.
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
 _engine_kwargs: dict = {
-    "echo": os.getenv("DB_ECHO", "false").lower() == "true",
+    "echo": settings.DB_ECHO,
     "future": True,
 }
 
+from sqlalchemy import event
+
 if _is_sqlite:
-    # StaticPool keeps a single connection alive across threads for SQLite,
-    # preventing "database is locked" errors in async contexts.
-    _engine_kwargs["connect_args"] = {"check_same_thread": False}
-    _engine_kwargs["poolclass"] = StaticPool
+    # NullPool prevents reusing dead event loop connections across multiple asyncio.run() calls
+    _engine_kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30.0}
+    _engine_kwargs["poolclass"] = NullPool
 else:
     # PostgreSQL: use a connection pool.
-    _engine_kwargs["pool_size"] = int(os.getenv("DB_POOL_SIZE", "10"))
-    _engine_kwargs["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+    _engine_kwargs["pool_size"] = settings.DB_POOL_SIZE
+    _engine_kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW
     _engine_kwargs["pool_pre_ping"] = True  # Verify connections before use.
 
 # ---------------------------------------------------------------------------
@@ -80,18 +57,7 @@ AsyncSessionLocal = async_sessionmaker(
 # Dependency — FastAPI-compatible async session generator
 # ---------------------------------------------------------------------------
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Yields an async database session.
-
-    Usage with FastAPI:
-        @app.get("/")
-        async def root(db: AsyncSession = Depends(get_db)):
-            ...
-
-    Usage standalone:
-        async with get_db_context() as db:
-            ...
-    """
+    """Yields an async database session."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -103,10 +69,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 @asynccontextmanager
 async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Async context manager for use outside of FastAPI (e.g., Celery workers,
-    CLI scripts, tests).
-    """
+    """Async context manager for use outside of FastAPI."""
     async with AsyncSessionLocal() as session:
         try:
             yield session

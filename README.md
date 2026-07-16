@@ -1,149 +1,186 @@
-<h1 align="center">
-  <br>
-  Secure Agentic Browser Security Suite (ABSs)
-  <br>
-</h1>
+# Agent-Bastion 🛡️🌐
+**The Easiest Way to Securely Deploy AI Agents in Production.**
 
-<h4 align="center">Enterprise-Grade Zero-Trust Security Proxy for Autonomous AI Web Agents</h4>
+[![Production Quality](https://img.shields.io/badge/Quality-Production%20Grade-00C853.svg)](https://github.com/Ashitpatel001/Agent-Bastion)
+[![Version](https://img.shields.io/badge/Version-2.0.0-0086X3.svg)](https://pypi.org/project/agent-bastion/)
+[![Python SDK](https://img.shields.io/badge/Python%20SDK->=3.11-3776AB.svg?logo=python&logoColor=white)](https://pypi.org/project/agent-bastion/)
+[![Docker](https://img.shields.io/badge/Docker-Zero--Trust%20Sandboxed-2496ED.svg?logo=docker&logoColor=white)](docs/DEPLOYMENT_GUIDE.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-<p align="center">
-  <a href="https://github.com/Ashitpatel001/Agent-Bastion/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen"></a>
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg"></a>
-  <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-15-black"></a>
-  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.111+-009688"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
-</p>
-
-## Overview
-
-The **Secure Agentic Browser Security Suite (ABSs)** is an enterprise-grade, multi-tenant Zero-Trust defense framework designed to protect autonomous AI web agents. As AI agents transition from read-only assistants to read-write actors on the open web, they become highly susceptible to **indirect prompt injection**, **malicious DOM manipulation**, **data exfiltration**, and **unauthorized action execution**. 
-
-ABSs acts as a robust proxy layer between an agent's reasoning engine (LLM) and the executable browser environment (Playwright), intercepting, sanitizing, and evaluating every interaction in real-time.
+Agent-Bastion is an authoritative, zero-trust **Multi-Tenant AI Browser Security Proxy & Orchestration Platform** that enables developers and enterprises to run autonomous web automation agents without risking credential theft, SSRF attacks, excessive bandwidth billing, or data exfiltration.
 
 ---
 
-<!-- FRONTEND PHOTO LOCATION -->
-<p align="center">
-  <img src="docs/assets/frontend-dashboard.png" alt="ABSs Enterprise Next.js Console" width="100%">
-  <br>
-  <em>The ABSs Security Operations Center (SOC) Console. (Place Frontend Photo Here)</em>
-</p>
-<!-- /FRONTEND PHOTO LOCATION -->
+## 🏗️ System Architecture
 
-## Features
-
-- **Multi-Tenant SaaS Ready:** Engineered for cloud deployments with isolated tenant configurations, PostgreSQL databases, and a modern Next.js 15 frontend.
-- **Dynamic Policy Engine & Risk Scorer:** Configurable hard constraints with heuristic analysis of action intent vs. capability scope.
-- **Distributed Worker Architecture:** Highly scalable backend using Celery & Redis to manage asynchronous agent sessions and explainable AI (XAI) tasks independently.
-- **Real-Time SOC Dashboard:** Live streaming of agent executions, network interceptions, and chronological DOM diffs.
-- **Embedded Threat Simulator:** A built-in local attack server mimicking 20+ modern LLM vulnerabilities (e.g., Hidden CSS, Crypto Drainers, Tracking Pixels).
-
----
-
-## Architecture
-
-ABSs employs a robust microservices architecture orchestrating FastAPI gateways, Celery distributed task queues, and isolated frontend environments.
-
-<!-- ARCHITECTURE PHOTO LOCATION -->
-<p align="center">
-  <img src="./docs/assets/image.png" alt="ABSs System Architecture" width="95%">
-  <br>
-</p>
-<!-- /ARCHITECTURE PHOTO LOCATION -->
-
-### Core Security Layers
-
-ABSs intercepts the standard Browser-to-LLM pipeline through a 5-stage Zero-Trust filtering system:
-
-| Layer | Component | Description |
-|---|---|---|
-| **Layer 0** | **Constitutional AI** | Hardened system prompts enforcing strict operational boundaries and an implicit mistrust of all parsed web content. |
-| **Layer 1** | **DOM Sanitization Lens** | Pre-execution content filtering. Uses heuristics to scrub prompt injections and malicious payloads natively from the DOM before LLM ingestion. |
-| **Layer 2** | **Action Sentinel** | In-execution action mediation. Every `click`, `type`, or `navigate` is piped through the Risk Scorer (`src/security/risk_scorer.py`) evaluating destination reputation and intent. |
-| **Layer 3** | **Network Firewall & DLP** | Intercepts HTTP/XHR routes at the Playwright level, blocking anomalous Cross-Origin requests and utilizing Honeytokens for Data Loss Prevention. |
-| **Layer 4** | **Explainable AI (XAI)** | Generates forensic Root Cause Analyses (RCA) on blocked actions, explaining *what* was attempted, *why* it was blocked, and the calculated risk. |
-
----
-
-## Project Structure
-
-```text
-ABSs/
-├── abs-frontend/            # Next.js 15 SaaS Frontend Console (React 19, Tailwind 4, Shadcn)
-├── src/                     # Core Backend Services
-│   ├── api/                 # FastAPI REST Endpoints & Authentication
-│   ├── db/                  # Async SQLAlchemy Models & Migrations
-│   ├── security/            # Policy Engine, Risk Scorer, Event Logger, Deception
-│   ├── workers/             # Celery Task Definitions (Agent & XAI workers)
-│   └── tests/               # Pytest suites
-├── attack_server.py         # Local Threat Simulation Environment (Flask)
-├── docker-compose.yml       # Production Docker Stack (API, Redis, Postgres, Workers, UI)
-├── frontend_implementation_plan.md # Architectural plan for the Next.js Console
-└── pyproject.toml           # Python dependencies and package configuration
+```
+                       ┌─────────────────────────────────────────────────────────┐
+                       │                   External Clients                      │
+                       │    (Python SDK / CLI / LangGraph / CrewAI / AutoGen)    │
+                       └───────────────────────────┬─────────────────────────────┘
+                                                   │ HTTPS / API Key (`X-API-Key`)
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Caddy Edge Reverse Proxy (Port 80 / 443)                                                         │
+│   ├── Coraza WAF (OWASP Core Rule Set + SSRF / SQLi / XSS Blocking)                              │
+│   └── fail2ban Host IPS (Brute Force / DDoS / Scanner Auto-Jail)                                 │
+└──────────────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                                   │ Internal Bridge (`abs-backend` Network)
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ FastAPI Gateway Core (Internal Port 8000)                                                        │
+│   ├── Tenant Authentication & Cryptographic API Key Verification (`passlib` + `python-jose`)     │
+│   ├── Multi-Tenant Quota & Sliding-Window Rate Limiter (Redis-backed Token Bucket)               │
+│   └── InputSanitizationLayer (`bleach` + URL Hostname Enforcement + Honeytoken Injection)        │
+└───────────────────────┬──────────────────────────────────────────┬───────────────────────────────┘
+                        │ Async Task Enqueue                       │ SQL Audit Logging
+                        ▼                                          ▼
+┌───────────────────────────────────────────────┐  ┌───────────────────────────────────────────────┐
+│ Distributed Worker Cluster (`Celery` + Redis) │  │ PostgreSQL 15 Database (Internal Port 5432)   │
+│   ├── Priority Queue (`priority_agents`)      │  │   ├── Isolated Tenant Boundaries (`tenant_id`)│
+│   ├── Standard Queue (`agents`)               │  │   ├── Encrypted Audit Trail (`SecurityLog`)   │
+│   └── Dead-Letter Queue (`dlq`)               │  │   └── Quota & Session Storage                 │
+└───────────────────────┬───────────────────────┘  └───────────────────────────────────────────────┘
+                        │ Isolated Browser Sandboxes
+                        ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Ephemeral Chromium Sandboxes (`seccomp:unconfined` + Hardened Network Boundaries)                │
+│   └── Outbound Network Filtering & Deception Honeytokens                                         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Quick Start & Deployment
+## ⚡ 5-Minute Quickstart Workflow
 
-ABSs uses Docker Compose to orchestrate its microservices, including PostgreSQL, Redis, FastAPI, Celery Workers, and Dashboards.
+Can a developer securely deploy their first AI agent in under five minutes? **Yes.**
 
-### 1. Clone & Configure
+### Step 1: Launch the Production Stack
+Clone the repository and spin up the complete zero-trust platform using Docker Compose:
 ```bash
 git clone https://github.com/Ashitpatel001/Agent-Bastion.git
-cd ABSs
+cd Agent-Bastion
 cp .env.example .env
-```
-Populate `.env` with your API keys (`OPENAI_API_KEY`, `BROWSER_USE_API_KEY`, `GEMINI_API_KEY`, `VIRUSTOTAL_API_KEY`).
-
-### 2. Launch with Docker Compose
-The Docker Stack supports modular deployment via profiles.
-
-**Production Stack (API, Workers, DBs, Dashboards):**
-```bash
 docker compose up --build -d
 ```
 
-**Developer / Monitoring Stack (Includes Flower & Attack Server):**
+### Step 2: Install the Python SDK & CLI
+Install the official package directly via `pip`:
 ```bash
-docker compose --profile monitoring --profile dev up --build -d
+pip install agent-bastion
 ```
 
-### 3. Alternative: Local Native Runner
-For rapid local testing without Docker:
+### Step 3: Initialize & Provision Your Tenant
+Use the CLI to register your organization and generate an administrative API key:
 ```bash
-python run.py
+# Register tenant
+agent-bastion create-tenant --name "Acme AI Labs" --tier ENTERPRISE
+
+# Save API Key to local profile
+agent-bastion login --api-key "abs_ak_prod_your_generated_key_here"
 ```
-Provides an interactive CLI menu to start the API, Attack Server, Streamlit SOC Dashboard, and run agents against threat vectors.
+
+### Step 4: Submit Your First Autonomous Task
+Run a web extraction task directly from your terminal:
+```bash
+agent-bastion deploy --prompt "Extract top 3 technology headlines" --url "https://news.ycombinator.com" --priority 1
+```
+
+### Step 5: Monitor Execution Progression
+Inspect live step execution and retrieve extracted output:
+```bash
+agent-bastion status --session-id "<YOUR_SESSION_UUID>"
+```
 
 ---
 
-## Threat Simulation Environment
+## 🐍 Python SDK (`from agent_bastion import Client`)
 
-The repository includes a dedicated `attack_server.py` designed to test autonomous agents against state-of-the-art vulnerabilities. Accessible on Port `5001` (Dev profile), it simulates:
-- **`vector_1_prompt_injection.html`**: Direct LLM overriding.
-- **`vector_2_hidden_css.html`**: Invisible instructions rendered to agents.
-- **`vector_3_clickjacking.html`**: Deceptive iframe layering.
-- **`vector_7_crypto_drainer.html`**: Web3 wallet exfiltration attempts.
+Agent-Bastion provides a clean, Pythonic SDK designed for synchronous and asynchronous execution:
 
-## Technology Stack
+```python
+from agent_bastion import Client, AgentBastionError
 
-- **Frontend:** Next.js 15 (App Router), React 19, Tailwind CSS 4, Zustand, NextAuth, Shadcn/ui
-- **API Gateway:** FastAPI, Uvicorn
-- **Distributed Workers:** Celery, Redis
-- **Database:** PostgreSQL (SQLAlchemy Asyncio, asyncpg)
-- **Agent Engine:** Browser-Use, Playwright, LangChain (Groq, OpenAI)
-- **Monitoring & Internal Dashboards:** Customised Designs, Flower
+# Initialize client (automatically reads AGENT_BASTION_API_KEY env var)
+with Client(api_key="abs_ak_prod_123456") as client:
+    try:
+        # Submit task
+        session = client.create_agent_session(
+            task_prompt="Navigate to company portal and audit login link responsiveness",
+            target_url="https://example.com",
+            priority=3,
+            max_retries=3,
+        )
+        print(f"Task Enqueued: {session['session_id']} (Queue: {session['queue_name']})")
+
+        # Check progression
+        status = client.get_status(session["session_id"])
+        print(f"Status: {status['status']} | Steps Completed: {status['step_count']}")
+
+        # Retrieve cluster observability metrics
+        metrics = client.metrics()
+        print(f"Total Processed Tasks: {metrics.get('total_tasks')}")
+
+    except AgentBastionError as exc:
+        print(f"SDK Exception [{exc.status_code}]: {exc.message}")
+```
 
 ---
 
-## Contributing
+## 🖥️ CLI Command Reference
 
-We welcome contributions to harden agentic security vectors. Please ensure that PRs:
-1. Include rigorous Pytest coverage in `src/tests`.
-2. Adhere to `black` formatting and `isort` profiles defined in `pyproject.toml`.
-3. Do not commit `.env` files or sensitive telemetry.
+| Command | Description | Example |
+| :--- | :--- | :--- |
+| `agent-bastion init` | Initialize local workspace (`.env` & configuration) | `agent-bastion init` |
+| `agent-bastion login` | Save API credentials locally to `~/.agent-bastion/` | `agent-bastion login --api-key abs_ak_...` |
+| `agent-bastion create-tenant`| Register new multi-tenant organization | `agent-bastion create-tenant --name Acme --tier PRO` |
+| `agent-bastion generate-api-key` | Generate cryptographic API key for workers | `agent-bastion generate-api-key --name worker-key` |
+| `agent-bastion deploy` | Enqueue a new browser automation task | `agent-bastion deploy --prompt "Audit site" --url "https://..."`|
+| `agent-bastion status` | Inspect task progression, step count, and result | `agent-bastion status -s <SESSION_UUID>` |
+| `agent-bastion health` | Check database, redis, and worker cluster health | `agent-bastion health` |
+| `agent-bastion metrics` | Inspect task queues and worker telemetry | `agent-bastion metrics` |
+| `agent-bastion version` | Display CLI and SDK release versions | `agent-bastion version` |
 
-## License
+---
 
-This project is licensed under the [MIT License](LICENSE).
+## 🔌 Extensible Adapter Interfaces (Future Compatibility)
+
+Agent-Bastion v2.0 includes extensible adapter interfaces (`src/agent_bastion/adapters.py`) designed to seamlessly bridge major AI agent orchestration frameworks with zero-trust sandboxed workers:
+
+- **LangGraph** (`LangGraphAdapter`): Route graph node execution and checkpointers through isolated browser workers.
+- **CrewAI** (`CrewAIAdapter`): Delegate multi-agent research crews (`agents`, `tasks`) to priority queues.
+- **AutoGen** (`AutoGenAdapter`): Secure conversable assistant and user proxy web execution loops.
+- **OpenAI Agents** (`OpenAIAgentAdapter`): Bridge Assistant / Swarm tool calls to WAF-inspected endpoints.
+- **MCP Servers** (`MCPServerAdapter`): Expose Agent-Bastion browser actions via standard Model Context Protocol JSON-RPC.
+
+---
+
+## 📚 Comprehensive Documentation
+
+Explore our production-grade guides in the `docs/` directory:
+
+- [⚡ Quickstart Guide](docs/QUICKSTART_GUIDE.md) — Step-by-step 5-minute onboarding tutorial.
+- [🛠️ Installation Guide](docs/INSTALLATION_GUIDE.md) — Package installation, virtual environments, and Docker setups.
+- [🚀 Deployment Guide](docs/DEPLOYMENT_GUIDE.md) — VPS provisioning, DNS, Caddy SSL, and fail2ban host hardening.
+- [🔒 Security Guide](docs/SECURITY_GUIDE.md) — Deep dive into WAF rules, honeytokens, input sanitization, and tenant isolation.
+- [📖 SDK Guide](docs/SDK_GUIDE.md) — Comprehensive API reference for `agent_bastion.Client` and models.
+- [⌨️ CLI Guide](docs/CLI_GUIDE.md) — Full manual for `agent-bastion` console commands and exit codes.
+- [🏛️ Architecture Guide](docs/ARCHITECTURE_GUIDE.md) — Multi-layer design, queue topologies, and zero-trust boundaries.
+- [❓ FAQ](docs/FAQ.md) — Frequently asked questions on LLM providers, rate limits, and self-hosting.
+- [🤝 Contributing Guide](CONTRIBUTING.md) — Developer setup, `ruff` formatting, type checking, and PR rules.
+
+---
+
+## 🛡️ Security Guarantees
+
+Agent-Bastion enforces strict defense-in-depth across every boundary:
+1. **Zero Host Port Exposure**: Only Caddy reverse proxy (`:80/:443`) and Grafana (`:3001`) are exposed. Database (`:5432`), Redis (`:6379`), and API Gateway (`:8000`) communicate exclusively over internal Docker bridge networks (`Task 7.5`).
+2. **Hardened Container Runtimes**: All API and worker containers run as non-root user (`appuser`, UID 10001) (`Task 7.3`).
+3. **Automated Threat Mitigation**: Coraza WAF blocks injection attacks while `fail2ban` dynamically jails scanning or brute-forcing IP addresses at the host kernel table (`Task 7.2 & 7.4`).
+4. **Mandatory Tenant Isolation**: Every PostgreSQL query dynamically filters by `tenant_id`, guaranteeing cross-tenant data boundaries (`Task 4.1`).
+
+---
+
+## 📄 License
+
+Agent-Bastion is open-source software licensed under the **MIT License**. See [LICENSE](LICENSE) for details.

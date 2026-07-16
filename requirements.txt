@@ -4,6 +4,7 @@ langchain-openai
 langchain-google-genai
 python-dotenv
 pydantic[email]>=2.0
+pydantic-settings>=2.3
 sqlalchemy[asyncio]>=2.0
 aiosqlite>=0.19
 asyncpg>=0.29
@@ -20,3 +21,4 @@ groq
 langchain-groq
 bcrypt>=4.0.0
 python-jose[cryptography]>=3.3.0
+prometheus-client>=0.20.0

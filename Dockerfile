@@ -1,12 +1,15 @@
-# ============================================================
-# ABSs v2.0 — Multi-Tenant AI Browser Security Proxy
-# Production Dockerfile
-# ============================================================
+# ==============================================================================
+# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
+# Canonical Root Dockerfile (Alias for Dockerfile.api)
+#
+# Per strict 10/10 Docker Architecture specifications:
+# - Backend & Workers use: Dockerfile.api
+# - Next.js UI uses:       Dockerfile.frontend
+#
+# This file is maintained as a clean alias to Dockerfile.api for standard tooling compatibility.
+# ==============================================================================
 
-##############################
-# Base Image
-##############################
-FROM python:3.11-slim-bookworm AS base
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -16,6 +19,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     DEBIAN_FRONTEND=noninteractive
 
+# Install critical system packages, compilation headers, and Playwright Chromium dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -44,82 +48,40 @@ RUN apt-get update && \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
+# Create dedicated non-root user and group
 RUN groupadd -r abs && \
     useradd -r -g abs -m abs
 
 WORKDIR /app
 
-##############################
-# Dependencies
-##############################
-FROM base AS deps
+# Install Python project requirements and Celery monitoring packages
+COPY pyproject.toml requirements.txt README.md ./
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    pip install -r requirements.txt && \
+    pip install flower
 
-COPY pyproject.toml README.md ./
-
-RUN python -m pip install --upgrade pip setuptools wheel
-
+# Copy full application codebase and install editable package
 COPY --chown=abs:abs . .
-
 RUN pip install -e .
 
-RUN python -m playwright install chromium
+# Install Playwright browser engine for secure web automation execution
+RUN python -m playwright install chromium && \
+    chown -R abs:abs /ms-playwright /app
 
+# Ensure runtime directories exist and have secure ownership
 RUN mkdir -p \
     logs \
     src/security/dashboard/screenshots \
     src/security/dashboard/diffs && \
-    chown -R abs:abs logs src/security/dashboard
+    chown -R abs:abs logs src/security/dashboard /app /ms-playwright
 
-##############################
-# API
-##############################
-FROM deps AS api
-
+# Drop privileges to non-root user
 USER abs
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-CMD curl -fs http://localhost:8000/health || exit 1
+    CMD curl -fs http://localhost:8000/health || exit 1
 
-ENTRYPOINT ["tini","--"]
-
-CMD ["uvicorn","src.api.main:app","--host","0.0.0.0","--port","8000","--workers","2"]
-
-##############################
-# Agent Worker
-##############################
-FROM deps AS worker-agent
-
-USER abs
-
-ENTRYPOINT ["tini","--"]
-
-CMD ["celery","-A","src.workers.celery_app","worker","-Q","agents","--loglevel=info","--concurrency=1"]
-
-##############################
-# XAI Worker
-##############################
-FROM deps AS worker-xai
-
-USER abs
-
-ENTRYPOINT ["tini","--"]
-
-CMD ["celery","-A","src.workers.celery_app","worker","-Q","xai","--loglevel=info","--concurrency=4"]
-
-
-##############################
-# Flower
-##############################
-FROM deps AS flower
-
-RUN pip install flower
-
-USER abs
-
-EXPOSE 5555
-
-ENTRYPOINT ["tini","--"]
-
-CMD ["celery","-A","src.workers.celery_app","flower","--port=5555","--persistent=True"]
+ENTRYPOINT ["tini", "--"]
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

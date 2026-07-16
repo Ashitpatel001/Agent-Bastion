@@ -1,17 +1,29 @@
-# ============================================================
-# ABSs v2.0 — Multi-Tenant AI Browser Security Proxy
-# Production Docker Compose Stack
+# ==============================================================================
+# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
+# Canonical Production Docker Compose Stack (docker-compose.yml)
 #
 # Usage:
-#   docker compose up --build              # Start all core services
-#   docker compose --profile monitoring up  # Include Flower dashboard
-#   docker compose --profile dev up         # Include attack test server
-#   docker compose down -v                  # Teardown + remove volumes
-# ============================================================
+#   docker compose up -d --build                               # Core Production Stack (Caddy, API, UI, Workers, DBs)
+#   docker compose --profile monitoring up -d --build          # Core + Prometheus, Loki, Grafana, Flower
+#   docker compose --profile monitoring --profile security up  # Core + Monitoring + fail2ban IPS
+# ==============================================================================
+
+x-backend-env: &backend-env
+  PYTHONPATH: /app/src:/app
+  POSTGRES_HOST: postgres
+  POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+  POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  ENV: production
+  ENVIRONMENT: production
 
 services:
 
-  # ── Infrastructure ─────────────────────────────────────────
+  # ── 1. Infrastructure Layer (Strict Internal Routing Only) ──────────────────
 
   postgres:
     image: postgres:16-alpine
@@ -22,8 +34,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-abs_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}"]
       interval: 10s
@@ -45,8 +55,6 @@ services:
         --save 60 1000
     volumes:
       - redis_data:/data
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -56,18 +64,16 @@ services:
     networks:
       - abs-backend
 
-  # ── Application Services ───────────────────────────────────
+  # ── 2. Database Initialization Service ──────────────────────────────────────
 
   db-init:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: deps
+      dockerfile: Dockerfile.api
     container_name: abs-db-init
     command: ["python", "-c", "import asyncio; from db.database import init_db; asyncio.run(init_db())"]
     environment:
-      PYTHONPATH: /app/src:/app
-      POSTGRES_HOST: postgres
+      <<: *backend-env
     env_file:
       - path: .env
         required: false
@@ -79,20 +85,16 @@ services:
     networks:
       - abs-backend
 
+  # ── 3. Core FastAPI Gateway ─────────────────────────────────────────────────
+
   api:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: api
+      dockerfile: Dockerfile.api
     container_name: abs-api
-    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-    ports:
-      - "${API_PORT:-8000}:8000"
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
     environment:
-      PYTHONPATH: /app/src:/app
-      POSTGRES_HOST: postgres
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      <<: *backend-env
     env_file:
       - path: .env
         required: false
@@ -116,17 +118,16 @@ services:
         reservations:
           memory: 128M
 
+  # ── 4. Distributed Celery Agent & XAI Workers ───────────────────────────────
+
   worker-agent:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: worker-agent
+      dockerfile: Dockerfile.api
     container_name: abs-worker-agent
+    command: ["celery", "-A", "src.workers.celery_app", "worker", "-Q", "agents", "--loglevel=info", "--concurrency=1"]
     environment:
-      PYTHONPATH: /app/src:/app
-      POSTGRES_HOST: postgres
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      <<: *backend-env
     env_file:
       - path: .env
         required: false
@@ -148,22 +149,18 @@ services:
           memory: 2G
         reservations:
           memory: 512M
-    # Chromium needs shared memory and relaxed seccomp
     security_opt:
       - seccomp:unconfined
     shm_size: '512m'
-    
+
   worker-xai:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: worker-xai
+      dockerfile: Dockerfile.api
     container_name: abs-worker-xai
+    command: ["celery", "-A", "src.workers.celery_app", "worker", "-Q", "xai", "--loglevel=info", "--concurrency=4"]
     environment:
-      PYTHONPATH: /app/src:/app
-      POSTGRES_HOST: postgres
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      <<: *backend-env
     env_file:
       - path: .env
         required: false
@@ -184,45 +181,113 @@ services:
         reservations:
           memory: 128M
 
+  # ── 5. Next.js Production Standalone Frontend ───────────────────────────────
 
   frontend:
     build:
-      context: ./abs-frontend
-      dockerfile: Dockerfile
-      target: dev
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: runner
     container_name: abs-frontend
-    ports:
-      - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-    volumes:
-      - ./abs-frontend:/app
-      - /app/node_modules
-      - /app/.next
+      - NEXT_PUBLIC_API_URL=/api
     depends_on:
       - api
     restart: unless-stopped
     networks:
       - abs-frontend
 
+  # ── 6. Caddy Reverse Proxy & WAF Gateway (Production TLS / HTTPS) ───────────
+  # ONLY Caddy (80/443) and Grafana (3001 when enabled) are exposed to host
 
-  # ── Optional: Monitoring ───────────────────────────────────
-
-  flower:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: flower
-    container_name: abs-flower
+  caddy:
+    image: caddy:2-alpine
+    container_name: abs-caddy
     ports:
-      - "${FLOWER_PORT:-5555}:5555"
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+      - "${CADDY_HTTPS_PORT:-443}:443/udp"
     environment:
-      PYTHONPATH: /app/src:/app
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      - CADDY_DOMAIN=${CADDY_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
     depends_on:
-      redis:
-        condition: service_healthy
+      - api
+      - frontend
+    restart: unless-stopped
+    networks:
+      - abs-backend
+      - abs-frontend
+
+  # ── 7. Optional Observability & Monitoring Profile (--profile monitoring) ───
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: abs-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - abs-backend
+    profiles:
+      - monitoring
+
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: abs-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    restart: unless-stopped
+    networks:
+      - abs-backend
+    profiles:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:3.1.0
+    container_name: abs-promtail
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caddy_logs:/var/log/caddy:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+    networks:
+      - abs-backend
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: abs-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-abs_grafana_secret_2026}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+      - loki
     restart: unless-stopped
     networks:
       - abs-backend
@@ -230,40 +295,61 @@ services:
     profiles:
       - monitoring
 
-  # ── Optional: Dev/Test Attack Server ───────────────────────
-
-  attack-server:
+  flower:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: api
-    container_name: abs-attack-server
-    command: ["python", "attack_server.py"]
-    ports:
-      - "${ATTACK_PORT:-5001}:5001"
+      dockerfile: Dockerfile.api
+    container_name: abs-flower
+    command: ["celery", "-A", "src.workers.celery_app", "flower", "--port=5555", "--persistent=True"]
     environment:
-      PYTHONPATH: /app/src:/app
+      <<: *backend-env
+    depends_on:
+      - redis
     restart: unless-stopped
     networks:
       - abs-backend
+      - abs-frontend
     profiles:
-      - dev
+      - monitoring
 
-# ── Volumes ──────────────────────────────────────────────────
+  # ── 8. Optional Security IPS Profile (--profile security) ───────────────────
+
+  fail2ban:
+    image: crazymax/fail2ban:latest
+    container_name: abs-fail2ban
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./fail2ban/jail.local:/data/jail.local:ro
+      - ./fail2ban/filter.d:/data/filter.d:ro
+      - caddy_logs:/var/log/caddy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - F2B_LOG_TARGET=STDOUT
+      - F2B_LOG_LEVEL=INFO
+    restart: unless-stopped
+    profiles:
+      - security
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
-    driver: local
   redis_data:
-    driver: local
   agent_screenshots:
-    driver: local
   agent_diffs:
-    driver: local
+  caddy_data:
+  caddy_config:
+  caddy_logs:
+  prometheus_data:
+  loki_data:
+  grafana_data:
 
-# ── Networks ─────────────────────────────────────────────────
+# ── Networks ──────────────────────────────────────────────────────────────────
 networks:
   abs-backend:
     driver: bridge
-    internal: true     # No external access — services communicate internally
+    internal: true     # Zero external host access — strict internal routing
   abs-frontend:
-    driver: bridge     # Exposed to host for port mapping
+    driver: bridge     # Internal bridge allowing Caddy -> Frontend -> API routing

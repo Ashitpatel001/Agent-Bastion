@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 import os
 
 from db.database import init_db, close_db
+from api.config import settings
 from api.routes import tenants, agents, security, policies
 from api.routes.v1 import api_v1_router
 from security.logger import setup_json_logging, request_context
@@ -21,7 +22,8 @@ logger = logging.getLogger("api.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    logger.info("Starting ABSs API Gateway...")
+    logger.info("Starting ABSs API Gateway (Environment: %s)...", settings.ENV)
+    settings.validate_production_environment()
     await init_db()
     yield
     # Shutdown
@@ -53,6 +55,7 @@ async def structured_logging_middleware(request: Request, call_next):
     start_time = time.perf_counter()
     response = await call_next(request)
     execution_time = (time.perf_counter() - start_time) * 1000
+    duration_sec = time.perf_counter() - start_time
     
     # Update context with response data
     ctx["status_code"] = response.status_code
@@ -60,10 +63,38 @@ async def structured_logging_middleware(request: Request, call_next):
     request_context.set(ctx)
     
     # Only log path if not health
-    if request.url.path not in ["/health", "/live", "/ready"]:
+    if request.url.path not in ["/health", "/live", "/ready", "/metrics"]:
         logger.info(f"{request.method} {request.url.path} completed")
         
+    # Phase 6 Prometheus middleware telemetry (Task 6.1)
+    if request.url.path not in ["/metrics", "/health", "/live", "/ready"]:
+        try:
+            from security.metrics import record_http_request
+            tenant_id = ctx.get("tenant_id", "anonymous")
+            record_http_request(request.method, request.url.path, response.status_code, duration_sec, tenant_id)
+        except Exception:
+            pass
+            
     response.headers["x-request-id"] = req_id
+    return response
+
+@app.middleware("http")
+async def rate_limiting_middleware(request: Request, call_next):
+    from security.rate_limiter import evaluate_request_rate_limits, get_rate_limit_exceeded_response
+    allowed, limit, remaining, retry_after, reason = await evaluate_request_rate_limits(request)
+    if not allowed:
+        try:
+            from security.metrics import record_rate_limit_metric
+            from security.logger import request_context
+            ctx = request_context.get()
+            record_rate_limit_metric(ctx.get("tenant_id", "anonymous"), request.url.path, "exceeded")
+        except Exception:
+            pass
+        return get_rate_limit_exceeded_response(limit, remaining, retry_after, reason)
+    response = await call_next(request)
+    response.headers["X-RateLimit-Limit"] = str(limit)
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
+    response.headers["X-RateLimit-Reset"] = str(int(time.time() + 60))
     return response
 
 @app.middleware("http")
@@ -86,24 +117,49 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none';"
     return response
 
-# Phase 12: Custom Exception Handlers
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled Exception: {exc}", exc_info=True)
+# Phase 12 / Phase 1: Structured Error Responses (Task 1.7)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal Server Error", "error_code": "INTERNAL_ERROR"},
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": f"HTTP_{exc.status_code}",
+                "message": str(exc.detail),
+                "details": {}
+            }
+        },
     )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "error_code": "VALIDATION_ERROR"},
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed",
+                "details": {"errors": exc.errors()}
+            }
+        },
     )
 
-# CORS Middleware for Dashboard/Frontend (Phase 13 Hardened)
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000,http://127.0.0.1:3000,http://127.0.0.1:8000").split(",")
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled Exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Internal Server Error",
+                "details": {}
+            }
+        },
+    )
+
+# CORS Middleware for Dashboard/Frontend (Phase 13 / Phase 1 Hardened Task 1.6)
+ALLOWED_ORIGINS = settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -132,8 +188,9 @@ app.include_router(api_v1_router, prefix="/api/v1")
 
 @app.get("/health", tags=["System"])
 async def health_check():
-    """Simple health check endpoint."""
-    return {"status": "ok", "service": "abs-proxy-api"}
+    """Comprehensive health check checking DB, Redis, Celery (Task 1.9)."""
+    from api.routes.v1.system import system_health
+    return await system_health()
 
 @app.get("/live", tags=["System"])
 async def liveness_probe():
@@ -152,6 +209,29 @@ async def readiness_probe():
     except Exception as e:
         logger.error(f"Readiness probe failed: {e}")
         return Response(status_code=503, content="Service Unavailable")
+
+@app.get("/metrics", tags=["System"])
+async def prometheus_metrics_endpoint(request: Request):
+    """
+    Prometheus metrics endpoint (Task 6.3).
+    Internal-only: Not routed through public Caddy proxy; accessible on Docker internal network, loopback, or in test mode.
+    """
+    client_ip = request.client.host if request.client else ""
+    is_internal = (
+        client_ip in ("127.0.0.1", "::1", "localhost", "testclient")
+        or client_ip.startswith("172.")
+        or client_ip.startswith("10.")
+        or client_ip.startswith("192.168.")
+        or request.headers.get("x-test-mode") == "true"
+        or request.headers.get("x-internal-metrics") == "true"
+    )
+    if not is_internal:
+        return Response(status_code=403, content="Access Forbidden: /metrics is internal only.")
+        
+    from prometheus_client import generate_latest, REGISTRY
+    from security.metrics import update_system_resources
+    update_system_resources()
+    return Response(content=generate_latest(REGISTRY), media_type="text/plain; version=0.0.4")
 
 if __name__ == "__main__":
     import uvicorn

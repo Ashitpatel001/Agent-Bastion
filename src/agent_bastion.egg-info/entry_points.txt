@@ -1,0 +1,2 @@
+[console_scripts]
+agent-bastion = agent_bastion.cli:main

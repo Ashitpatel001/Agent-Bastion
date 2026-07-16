@@ -3,7 +3,7 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "abs-security-proxy"
+name = "agent-bastion"
 version = "2.0.0"
 description = "Multi-Tenant AI Browser Security Proxy — Zero-Trust defense for autonomous web agents."
 readme = "README.md"
@@ -69,11 +69,14 @@ dependencies = [
     "beautifulsoup4>=4.12",
 
     # ==========================
-    # Security
+    # Security & Observability
     # ==========================
     "cryptography>=43",
     "python-jose[cryptography]>=3.3",
     "passlib[bcrypt]>=1.7",
+    "prometheus-client>=0.20.0",
+    "bleach>=6.1.0",
+    "langchain-google-genai",
 
     # ==========================
     # Utilities
@@ -82,12 +85,16 @@ dependencies = [
     "orjson>=3.10",
 ]
 
+[project.scripts]
+agent-bastion = "agent_bastion.cli:main"
+
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = [
+    "agent_bastion*",
     "api*",
     "db*",
     "security*",

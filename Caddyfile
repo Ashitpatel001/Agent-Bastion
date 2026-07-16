@@ -1,0 +1,77 @@
+# ============================================================
+# ABSs v2.0 — Multi-Tenant AI Browser Security Proxy
+# Production Caddy Reverse Proxy & WAF Configuration
+# Phase 7 Deliverable
+# ============================================================
+
+{
+	# Global options
+	admin off
+}
+
+# Snippet for comprehensive security headers (Task 7.3)
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none';"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), browsing-topics=()"
+		-Server
+	}
+}
+
+# Production / Dev Route
+{$CADDY_DOMAIN:localhost} {
+	import security_headers
+
+	# WAF inspection block (Task 7.2) - uses coraza directive when Caddy+Coraza is loaded
+	# coraza_waf {
+	# 	directives `
+	# 		Include /etc/caddy/coraza.conf
+	# 	`
+	# }
+
+	# API Gateway Routing (Task 7.1)
+	handle /api/* {
+		reverse_proxy http://api:8000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# OpenAPI / Swagger Documentation
+	handle /docs* {
+		reverse_proxy http://api:8000
+	}
+	handle /openapi.json* {
+		reverse_proxy http://api:8000
+	}
+	handle /health* {
+		reverse_proxy http://api:8000
+	}
+	handle /metrics* {
+		reverse_proxy http://api:8000
+	}
+
+	# Next.js Frontend Routing (Task 7.1)
+	handle /* {
+		reverse_proxy http://frontend:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Access and error logging for Promtail / fail2ban ingestion
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50mb
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format json
+	}
+}

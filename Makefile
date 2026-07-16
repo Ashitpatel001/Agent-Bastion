@@ -1,96 +1,89 @@
-# ============================================================
-# ABSs v2.0 — Multi-Tenant AI Browser Security Proxy
-# Development & Deployment Makefile
-# ============================================================
+# ==============================================================================
+# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
+# Universal Makefile Commands
+# ==============================================================================
 
-.PHONY: help build up down restart logs status \
-        up-full up-dev clean seed test shell-api shell-worker
+.PHONY: help init build up up-dev up-monitoring up-security down restart logs status shell-api shell-worker test clean
 
-# ── Defaults ──────────────────────────────────────────────────
 COMPOSE = docker compose
 ENV_FILE = .env
 
-# ── Help ──────────────────────────────────────────────────────
-help: ## Show this help
+# ── Help ──────────────────────────────────────────────────────────────────────
+help: ## Show available commands
 	@echo ""
-	@echo "  ABSs v2.0 — Docker Commands"
-	@echo "  ════════════════════════════════════════════"
+	@echo "  Agent-Bastion v2.0 — Docker & Developer Commands"
+	@echo "  ══════════════════════════════════════════════════════════════"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
-# ── Build ─────────────────────────────────────────────────────
-build: ## Build all Docker images
-	$(COMPOSE) build
-
-build-no-cache: ## Rebuild all images from scratch
-	$(COMPOSE) build --no-cache
-
-# ── Start / Stop ──────────────────────────────────────────────
-up: ## Start core services (API, workers, dashboard, infra)
-	$(COMPOSE) up --build -d
-
-up-full: ## Start everything including Flower monitoring
-	$(COMPOSE) --profile monitoring up --build -d
-
-up-dev: ## Start everything including attack test server
-	$(COMPOSE) --profile dev --profile monitoring up --build -d
-
-down: ## Stop all services
-	$(COMPOSE) --profile monitoring --profile dev down
-
-down-clean: ## Stop all services and remove volumes (DESTRUCTIVE)
-	$(COMPOSE) --profile monitoring --profile dev down -v
-
-restart: ## Restart all services
-	$(COMPOSE) --profile monitoring --profile dev restart
-
-# ── Logs ──────────────────────────────────────────────────────
-logs: ## Tail logs from all services
-	$(COMPOSE) logs -f --tail=100
-
-logs-api: ## Tail API logs
-	$(COMPOSE) logs -f --tail=100 api
-
-logs-agent: ## Tail agent worker logs
-	$(COMPOSE) logs -f --tail=100 worker-agent
-
-logs-xai: ## Tail XAI worker logs
-	$(COMPOSE) logs -f --tail=100 worker-xai
-
-# ── Status ────────────────────────────────────────────────────
-status: ## Show service status
-	$(COMPOSE) ps -a
-
-health: ## Check health of all services
-	@echo "── Service Health ──────────────────────────"
-	@$(COMPOSE) ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
-
-# ── Database ──────────────────────────────────────────────────
-db-shell: ## Open PostgreSQL shell
-	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}
-
-# ── Debug Shells ──────────────────────────────────────────────
-shell-api: ## Open shell in API container
-	$(COMPOSE) exec api /bin/bash
-
-shell-worker: ## Open shell in agent worker container
-	$(COMPOSE) exec worker-agent /bin/bash
-
-# ── Testing ───────────────────────────────────────────────────
-test: ## Run pytest (locally, not in Docker)
-	pytest src/tests/ -v
-
-# ── Setup ─────────────────────────────────────────────────────
-init: ## First-time setup: copy env template
+# ── Setup & Onboarding ────────────────────────────────────────────────────────
+init: ## First-time setup: create .env from .env.example
 	@if [ ! -f $(ENV_FILE) ]; then \
-		cp .env.docker $(ENV_FILE); \
-		echo "✅ Created .env from .env.docker — edit it with your API keys!"; \
+		cp .env.example $(ENV_FILE); \
+		echo "✅ Created .env from .env.example!"; \
 	else \
-		echo "⚠️  .env already exists. Skipping."; \
+		echo "ℹ️  .env already exists. Skipping."; \
 	fi
 
-# ── Cleanup ───────────────────────────────────────────────────
+# ── Local Development Mode (3-Minute Setup) ───────────────────────────────────
+up-dev: init ## Start Local Development Mode (Live reload on http://localhost)
+	$(COMPOSE) -f docker-compose.dev.yml up --build -d
+	@echo "🚀 Local Development Stack running at http://localhost"
+
+# ── Production Mode ───────────────────────────────────────────────────────────
+up: init ## Start Core Production Mode
+	$(COMPOSE) up --build -d
+	@echo "🚀 Production Core Stack running"
+
+up-monitoring: init ## Start Production Mode + Monitoring (Prometheus, Loki, Grafana, Flower)
+	$(COMPOSE) --profile monitoring up --build -d
+	@echo "📊 Monitoring Stack running. Grafana at http://localhost:3001"
+
+up-security: init ## Start Production Mode + Monitoring + Security IPS (fail2ban)
+	$(COMPOSE) --profile monitoring --profile security up --build -d
+	@echo "🛡️ Full Security & Monitoring Stack running"
+
+# ── Stop / Teardown ───────────────────────────────────────────────────────────
+down: ## Stop all services across both Dev and Prod profiles
+	$(COMPOSE) --profile monitoring --profile security down
+	$(COMPOSE) -f docker-compose.dev.yml down
+
+down-clean: ## Stop all services and remove volumes (DESTRUCTIVE)
+	$(COMPOSE) --profile monitoring --profile security down -v
+	$(COMPOSE) -f docker-compose.dev.yml down -v
+
+restart: ## Restart currently running containers
+	$(COMPOSE) restart
+
+# ── Logs & Status ─────────────────────────────────────────────────────────────
+logs: ## Tail logs from all containers
+	$(COMPOSE) logs -f --tail=100
+
+logs-api: ## Tail API Gateway logs
+	$(COMPOSE) logs -f --tail=100 api
+
+logs-workers: ## Tail Celery agent/xai worker logs
+	$(COMPOSE) logs -f --tail=100 worker-agent worker-xai
+
+status: ## Show container status
+	$(COMPOSE) ps -a
+
+# ── Debug & Shell Access ──────────────────────────────────────────────────────
+shell-api: ## Open Bash shell in API container
+	$(COMPOSE) exec api /bin/bash
+
+shell-worker: ## Open Bash shell in agent worker container
+	$(COMPOSE) exec worker-agent /bin/bash
+
+db-shell: ## Open PostgreSQL interactive shell
+	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}
+
+# ── Verification & Testing ────────────────────────────────────────────────────
+test: ## Run local automated test suite
+	python -m pytest src/tests/ -v
+
+# ── Cleanup ───────────────────────────────────────────────────────────────────
 clean: ## Remove dangling images and build cache
 	docker image prune -f
 	docker builder prune -f

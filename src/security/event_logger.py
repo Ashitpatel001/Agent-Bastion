@@ -274,25 +274,29 @@ class SecurityLogger:
         except Exception as e:
             logger.error("Failed to write security log: %s", e)
 
-        # If global async logger is available, also queue DB write
-        if SecurityLogger._global_async_logger is not None:
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    SecurityLogger._global_async_logger.log_event(
-                        event_type=event_type,
-                        url=url,
-                        details=details,
-                        risk_level=risk_level,
-                        risk_score=risk_score,
-                        action=action,
-                        screenshot_path=screenshot_path,
-                        explanation=explanation,
-                    )
+        # If global async logger is available (or create default system logger), queue DB write
+        async_logger = SecurityLogger._global_async_logger
+        if async_logger is None:
+            async_logger = AsyncSecurityLogger(tenant_id="system-default", write_jsonl_fallback=False)
+            SecurityLogger._global_async_logger = async_logger
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                async_logger.log_event(
+                    event_type=event_type,
+                    url=url,
+                    details=details,
+                    risk_level=risk_level,
+                    risk_score=risk_score,
+                    action=action,
+                    screenshot_path=screenshot_path,
+                    explanation=explanation,
                 )
-            except RuntimeError:
-                # No running event loop — skip async dispatch
-                pass
+            )
+        except RuntimeError:
+            # No running event loop — skip async dispatch
+            pass
 
     @staticmethod
     def get_screenshot_dir():

@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Union
 
-from fastapi import Security, HTTPException, status, Depends
+from fastapi import Security, HTTPException, status, Depends, Request
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import JWTError, ExpiredSignatureError, jwt
@@ -23,7 +23,7 @@ class _BcryptContext:
             return False
 
     def hash(self, password: str) -> str:
-        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 pwd_context = _BcryptContext()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
@@ -44,7 +44,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=SecurityConfig.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": to_encode.get("type", "access")})
     encoded_jwt = jwt.encode(to_encode, SecurityConfig.JWT_SECRET_KEY, algorithm=SecurityConfig.JWT_ALGORITHM)
     return encoded_jwt
 
@@ -52,7 +52,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=SecurityConfig.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SecurityConfig.JWT_SECRET_KEY, algorithm=SecurityConfig.JWT_ALGORITHM)
     return encoded_jwt
 
@@ -70,6 +70,8 @@ async def get_current_user(
         )
     try:
         payload = jwt.decode(token, SecurityConfig.JWT_SECRET_KEY, algorithms=[SecurityConfig.JWT_ALGORITHM])
+        if payload.get("type") == "refresh":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token cannot be used for API access. Please use an access token.")
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
@@ -94,6 +96,7 @@ async def get_current_user(
 
 
 async def get_current_tenant(
+    request: Request,
     token: Optional[str] = Depends(oauth2_scheme),
     api_key: Optional[str] = Security(api_key_header),
     db: AsyncSession = Depends(get_db)
@@ -115,9 +118,16 @@ async def get_current_tenant(
                     ctx = request_context.get()
                     ctx.update({"tenant_id": tenant.id})
                     request_context.set(ctx)
+                    if request:
+                        request.state.tenant_id = tenant.id
                     return tenant
                 elif tenant and not tenant.is_active:
                     logger.warning("Authentication failed: Tenant %s is inactive.", tenant_id)
+                    try:
+                        from security.metrics import record_auth_failure_metric
+                        record_auth_failure_metric("inactive_tenant", tenant_id)
+                    except Exception:
+                        pass
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Tenant account is inactive",
@@ -128,6 +138,11 @@ async def get_current_tenant(
         except ExpiredSignatureError:
             # Token has expired — raise immediately with a clear message
             logger.warning("Authentication failed: JWT token has expired.")
+            try:
+                from security.metrics import record_auth_failure_metric
+                record_auth_failure_metric("expired_jwt")
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token has expired. Please sign in again.",
@@ -144,10 +159,17 @@ async def get_current_tenant(
             ctx = request_context.get()
             ctx.update({"tenant_id": tenant.id})
             request_context.set(ctx)
+            if request:
+                request.state.tenant_id = tenant.id
             return tenant
             
     # If both failed or were missing
     logger.warning("Authentication failed: No valid JWT token or API key provided.")
+    try:
+        from security.metrics import record_auth_failure_metric
+        record_auth_failure_metric("invalid_or_missing_credentials")
+    except Exception:
+        pass
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Missing or invalid authentication credentials",
@@ -169,15 +191,13 @@ class RequireRole:
 
     async def __call__(
         self,
+        tenant: Tenant = Depends(get_current_tenant),
         token: Optional[str] = Depends(oauth2_scheme),
         api_key: Optional[str] = Security(api_key_header),
         db: AsyncSession = Depends(get_db)
     ) -> Tenant:
-        # Authenticate tenant using existing logic
-        tenant = await get_current_tenant(token=token, api_key=api_key, db=db)
-        
-        # If API key is present and valid, bypass user role check
-        if not token and api_key:
+        # If no token is present (e.g., API key authentication or test dependency override), bypass user role check
+        if not token:
             return tenant
             
         # If token is present, evaluate user role
@@ -189,6 +209,15 @@ class RequireRole:
                 
             user = await db.get(User, user_id)
             if not user or user.role not in self.allowed_roles:
+                try:
+                    from security.metrics import record_rbac_violation_metric
+                    record_rbac_violation_metric(
+                        user.role.value if user and user.role else "unknown",
+                        "/api/v1/*",
+                        tenant.id if tenant else "anonymous"
+                    )
+                except Exception:
+                    pass
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Operation not permitted. Requires one of: {[r.value for r in self.allowed_roles]}"
@@ -197,3 +226,42 @@ class RequireRole:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
             
         return tenant
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Dependency to require Admin role."""
+    if user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.admin]:
+        try:
+            from security.metrics import record_rbac_violation_metric
+            record_rbac_violation_metric(user.role.value if user.role else "unknown", "/admin", user.tenant_id)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation not permitted. Requires Admin role."
+        )
+    return user
+
+
+async def require_operator(user: User = Depends(get_current_user)) -> User:
+    """Dependency to require Operator or Admin role."""
+    if user.role not in [
+        UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR, 
+        UserRole.SECURITY_ANALYST, UserRole.DEVELOPER, 
+        UserRole.admin, UserRole.operator
+    ]:
+        try:
+            from security.metrics import record_rbac_violation_metric
+            record_rbac_violation_metric(user.role.value if user.role else "unknown", "/operator", user.tenant_id)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation not permitted. Requires Operator or Admin role."
+        )
+    return user
+
+
+async def require_viewer(user: User = Depends(get_current_user)) -> User:
+    """Dependency to require Viewer, Operator, or Admin role (any valid authenticated user)."""
+    return user

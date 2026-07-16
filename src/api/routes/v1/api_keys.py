@@ -44,9 +44,8 @@ async def create_api_key(
     await db.refresh(db_key)
     
     # We must construct the response carefully to include raw_key
-    response_data = APIKeyCreateResponse.model_validate(db_key)
-    response_data.raw_key = raw_key
-    return response_data
+    base_data = APIKeyResponse.model_validate(db_key)
+    return APIKeyCreateResponse(**base_data.model_dump(), raw_key=raw_key)
 
 
 @router.get("", response_model=APIKeyListResponse)
@@ -90,9 +89,8 @@ async def rotate_api_key(
     await db.commit()
     await db.refresh(db_key)
     
-    response_data = APIKeyCreateResponse.model_validate(db_key)
-    response_data.raw_key = raw_key
-    return response_data
+    base_data = APIKeyResponse.model_validate(db_key)
+    return APIKeyCreateResponse(**base_data.model_dump(), raw_key=raw_key)
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
@@ -106,6 +104,7 @@ async def revoke_api_key(
     if not db_key or db_key.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="API Key not found")
         
+    db_key.is_active = False
     await db.delete(db_key)
     await db.commit()
     return None

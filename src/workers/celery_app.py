@@ -27,14 +27,14 @@ import logging
 from celery import Celery
 from dotenv import load_dotenv
 
-load_dotenv()
+from api.config import settings
 
 logger = logging.getLogger("workers.celery_app")
 
 
-# Configuration from environment
-BROKER_URL: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+# Configuration from central settings
+BROKER_URL: str = settings.CELERY_BROKER_URL
+RESULT_BACKEND: str = settings.CELERY_RESULT_BACKEND
 
 
 # Celery instance
@@ -51,22 +51,25 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
 
-    # Reliability
+    # Reliability & Resource Protection (Task 4.3 & 4.5)
     task_acks_late=True,              
     task_reject_on_worker_lost=True,    # Requeue if worker crashes
     worker_prefetch_multiplier=1,       
 
-    # Time limits
-    task_soft_time_limit=300,           
-    task_time_limit=360,                
+    # Time limits (Task 4.5)
+    task_soft_time_limit=300,           # 5 min soft time limit
+    task_time_limit=360,                # 6 min hard kill time limit
 
     # Result expiry 
     result_expires=3600,                
 
-    # Task routing
+    # Task priority & routing (Stage A - Queue Architecture)
+    task_queue_max_priority=10,
+    task_default_priority=5,
     task_routes={
         "workers.xai_tasks.*": {"queue": "xai"},
-        "workers.agent_tasks.*": {"queue": "agents"},
+        "workers.agent_tasks.run_agent_task": {"queue": "agents"},
+        "workers.agent_tasks.cancel_agent_task": {"queue": "agents"},
     },
 
     # Default queue 

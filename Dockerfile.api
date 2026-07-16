@@ -1,0 +1,84 @@
+# ==============================================================================
+# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
+# Dockerfile.api — Single Responsibility Backend & Worker Container
+#
+# Responsibility: Serves FastAPI gateway, distributed Celery agent/XAI workers,
+# database initialization, and Flower monitoring.
+# ==============================================================================
+
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src:/app \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    DEBIAN_FRONTEND=noninteractive
+
+# Install critical system packages, compilation headers, and Playwright Chromium dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        git \
+        curl \
+        wget \
+        tini \
+        libpq-dev \
+        libnss3 \
+        libatk-bridge2.0-0 \
+        libgtk-3-0 \
+        libdrm2 \
+        libxdamage1 \
+        libxrandr2 \
+        libgbm1 \
+        libasound2 \
+        libxshmfence1 \
+        libxcomposite1 \
+        libxfixes3 \
+        libx11-xcb1 \
+        libxcb1 \
+        libxext6 \
+        libxrender1 \
+        fonts-liberation \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create dedicated non-root user and group
+RUN groupadd -r abs && \
+    useradd -r -g abs -m abs
+
+WORKDIR /app
+
+# Install Python project requirements and Celery monitoring packages
+COPY pyproject.toml requirements.txt README.md ./
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    pip install -r requirements.txt && \
+    pip install flower
+
+# Copy full application codebase and install editable package
+COPY --chown=abs:abs . .
+RUN pip install -e .
+
+# Install Playwright browser engine for secure web automation execution
+RUN python -m playwright install chromium && \
+    chown -R abs:abs /ms-playwright /app
+
+# Ensure runtime directories exist and have secure ownership
+RUN mkdir -p \
+    logs \
+    src/security/dashboard/screenshots \
+    src/security/dashboard/diffs && \
+    chown -R abs:abs logs src/security/dashboard /app /ms-playwright
+
+# Drop privileges to non-root user
+USER abs
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -fs http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["tini", "--"]
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

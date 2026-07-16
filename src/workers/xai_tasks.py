@@ -43,10 +43,10 @@ logger = get_task_logger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-import os
+from api.config import settings
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-XAI_MODEL = os.getenv("XAI_MODEL", "llama-3.3-70b-versatile")
+GROQ_API_KEY = settings.GROQ_API_KEY
+XAI_MODEL = settings.XAI_MODEL
 
 # Maximum retries and backoff for transient LLM failures
 _MAX_RETRIES = 3

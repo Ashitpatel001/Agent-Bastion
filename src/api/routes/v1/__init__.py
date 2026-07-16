@@ -2,23 +2,26 @@ from fastapi import APIRouter, Depends
 
 from . import (
     analytics, agents, api_keys, audit, auth, browser_sessions,
-    deception, incidents, jobs, organizations, policies,
+    deception, dx, incidents, jobs, organizations, policies,
     reputation, risk, sandbox, security_events, settings,
-    system, tenants, users
+    system, tenants, users, observability
 )
 
 from api.auth import RequireRole
 from db.models import UserRole
 
 # Define role tiers
-viewer_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.SECURITY_ANALYST, UserRole.DEVELOPER, UserRole.VIEWER]
-dev_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.DEVELOPER]
-sec_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.SECURITY_ANALYST]
-admin_roles = [UserRole.OWNER, UserRole.ADMIN]
+viewer_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR, UserRole.SECURITY_ANALYST, UserRole.DEVELOPER, UserRole.VIEWER, UserRole.admin, UserRole.operator, UserRole.viewer]
+dev_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR, UserRole.DEVELOPER, UserRole.admin, UserRole.operator]
+sec_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR, UserRole.SECURITY_ANALYST, UserRole.admin, UserRole.operator]
+operator_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR, UserRole.SECURITY_ANALYST, UserRole.DEVELOPER, UserRole.admin, UserRole.operator]
+admin_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.admin]
 
 api_v1_router = APIRouter()
 
 api_v1_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+api_v1_router.include_router(dx.router, prefix="/dx", tags=["Developer Experience"], dependencies=[Depends(RequireRole(dev_roles))])
+api_v1_router.include_router(observability.router, prefix="/observability", tags=["Observability & Security Intelligence"])
 api_v1_router.include_router(users.router, prefix="/users", tags=["Users"], dependencies=[Depends(RequireRole(admin_roles))])
 api_v1_router.include_router(organizations.router, prefix="/organizations", tags=["Organizations"], dependencies=[Depends(RequireRole(admin_roles))])
 api_v1_router.include_router(tenants.router, prefix="/tenants", tags=["Tenants"], dependencies=[Depends(RequireRole(admin_roles))])

@@ -1,17 +1,72 @@
-import os
-from dotenv import load_dotenv
+from api.config import settings
 
-load_dotenv()
 
-class SecurityConfig:
-    # VirusTotal API Key (Load from env)
-    VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY", "")
+class _SecurityConfigMeta(type):
+    @property
+    def VIRUSTOTAL_API_KEY(cls):
+        return settings.VIRUSTOTAL_API_KEY
     
-    # JWT & Authentication
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-key-replace-in-production-1234567890")
-    JWT_ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-    REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+    @property
+    def JWT_SECRET_KEY(cls):
+        return settings.JWT_SECRET_KEY
+    
+    @property
+    def JWT_ALGORITHM(cls):
+        return settings.JWT_ALGORITHM
+    
+    @property
+    def ACCESS_TOKEN_EXPIRE_MINUTES(cls):
+        return settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    
+    @property
+    def REFRESH_TOKEN_EXPIRE_DAYS(cls):
+        return settings.REFRESH_TOKEN_EXPIRE_DAYS
+
+    @property
+    def RATE_LIMIT_ENABLED(cls):
+        return settings.RATE_LIMIT_ENABLED
+
+    @property
+    def REDIS_POOL_SIZE(cls):
+        return settings.REDIS_POOL_SIZE
+
+    @property
+    def LOGIN_RATE_LIMIT(cls):
+        return settings.LOGIN_RATE_LIMIT
+
+    @property
+    def WORKER_LIMIT(cls):
+        return settings.WORKER_LIMIT
+
+    @property
+    def TENANT_CREATE_LIMIT(cls):
+        return settings.TENANT_CREATE_LIMIT
+
+    @property
+    def TENANT_REQUEST_LIMIT(cls):
+        return settings.TENANT_REQUEST_LIMIT
+
+    @property
+    def API_KEY_LIMIT(cls):
+        return settings.API_KEY_LIMIT
+
+    @property
+    def DEFAULT_RATE_LIMIT(cls):
+        return settings.DEFAULT_RATE_LIMIT
+
+    @property
+    def BURST_LIMIT(cls):
+        return settings.BURST_LIMIT
+
+    @property
+    def SUSTAINED_LIMIT(cls):
+        return settings.SUSTAINED_LIMIT
+
+
+class SecurityConfig(metaclass=_SecurityConfigMeta):
+    @classmethod
+    def validate_production_secrets(cls) -> None:
+        settings.validate_production_secrets()
     
     # Safe domains (Always trusted)
     TRUSTED_DOMAINS = [

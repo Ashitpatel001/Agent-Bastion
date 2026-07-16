@@ -70,6 +70,10 @@ class TenantPolicyEngine:
         self._cache_lock = asyncio.Lock()
         self._initialized = False
 
+        # Task 1.4: Bounded rate limit tracker with automatic TTL eviction to prevent memory leaks
+        self._rate_limit_tracker: dict[str, list[float]] = {}
+        self._rate_limit_lock = asyncio.Lock()
+
     @property
     def _cache_expired(self) -> bool:
         return (time.monotonic() - self._cache_timestamp) > self.cache_ttl_seconds
@@ -101,6 +105,7 @@ class TenantPolicyEngine:
                             if policy.max_risk_tolerance is not None
                             else self.DEFAULT_MAX_RISK_TOLERANCE,
                         "require_human_approval": policy.require_human_approval or False,
+                        "rate_limits": policy.rate_limits or {"requests_per_minute": 200, "burst_limit": 50},
                     }
                     self._cache_timestamp = time.monotonic()
                     self._initialized = True
@@ -139,6 +144,7 @@ class TenantPolicyEngine:
             "trusted_domains": [],
             "max_risk_tolerance": self.DEFAULT_MAX_RISK_TOLERANCE,
             "require_human_approval": False,
+            "rate_limits": {"requests_per_minute": 200, "burst_limit": 50},
         }
 
     async def invalidate_cache(self):
@@ -230,6 +236,42 @@ class TenantPolicyEngine:
             )
             return True
         return False
+
+    async def check_rate_limit(self, action_key: str, max_requests: int = 100, window_seconds: float = 60.0) -> bool:
+        """
+        Check rate limit against bounded sliding window.
+        Returns True if rate limit is EXCEEDED, False if allowed.
+        Automatically cleans up expired entries to prevent memory leaks (Task 1.4).
+        """
+        now = time.monotonic()
+        cutoff = now - window_seconds
+
+        async with self._rate_limit_lock:
+            # Periodic global eviction if tracker bounds grow (>1000 keys)
+            if len(self._rate_limit_tracker) > 1000:
+                expired_keys = [
+                    k for k, timestamps in self._rate_limit_tracker.items()
+                    if not timestamps or timestamps[-1] < cutoff
+                ]
+                for k in expired_keys:
+                    self._rate_limit_tracker.pop(k, None)
+
+            timestamps = self._rate_limit_tracker.get(action_key, [])
+            timestamps = [t for t in timestamps if t >= cutoff]
+
+            if len(timestamps) >= max_requests:
+                self._rate_limit_tracker[action_key] = timestamps
+                await self._log_policy_violation(
+                    f"[OWASP LLM07 | MITRE AML.T0042] Rate limit exceeded for action '{action_key}'.",
+                    url="N/A",
+                    risk_score=75,
+                    risk_level="HIGH",
+                )
+                return True
+
+            timestamps.append(now)
+            self._rate_limit_tracker[action_key] = timestamps
+            return False
 
     @property
     def max_risk_tolerance(self) -> int:

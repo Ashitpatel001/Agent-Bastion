@@ -299,8 +299,65 @@ export class AbsApiClient {
   async getObservabilityMetrics(): Promise<any> {
     return this.request('/api/v1/observability/metrics');
   }
+
+  async getObservabilityHealth(): Promise<any> {
+    return this.request('/api/v1/observability/health');
+  }
+
+  async getApiKeys(skip: number = 0, limit: number = 100): Promise<any> {
+    return this.request(`/api/v1/api-keys?skip=${skip}&limit=${limit}`);
+  }
+
+  async createApiKey(data: { name: string; scopes?: string[] }): Promise<any> {
+    return this.request('/api/v1/api-keys', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async rotateApiKey(keyId: string): Promise<any> {
+    return this.request(`/api/v1/api-keys/${keyId}/rotate`, {
+      method: 'POST',
+    });
+  }
+
+  async revokeApiKey(keyId: string): Promise<any> {
+    return this.request(`/api/v1/api-keys/${keyId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getOrganizations(skip: number = 0, limit: number = 100): Promise<any> {
+    return this.request(`/api/v1/organizations?skip=${skip}&limit=${limit}`);
+  }
+
+  async createOrganization(data: { name: string; slug?: string; description?: string; email?: string }): Promise<any> {
+
+    return this.request('/api/v1/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async logout(): Promise<any> {
+    return this.request('/api/v1/auth/logout', { method: 'POST' });
+  }
+
+  async changePassword(data: { current_password?: string; old_password?: string; new_password: string }): Promise<any> {
+    return this.request('/api/v1/auth/password/change', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: data.current_password || data.old_password || '', new_password: data.new_password }),
+    });
+  }
+
+  async resetPassword(email: string): Promise<any> {
+    return this.request(`/api/v1/auth/password/reset?email=${encodeURIComponent(email)}`, {
+      method: 'POST',
+    });
+  }
 }
 
 export const apiClient = AbsApiClient.create();
+
 
 

@@ -1,29 +1,18 @@
-# ==============================================================================
-# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
-# Security Monitoring & IPS Overlay (docker-compose.security.yml)
-#
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.security.yml up --build
-# ==============================================================================
-
+version: '3.8'
 services:
   fail2ban:
     image: crazymax/fail2ban:latest
     container_name: abs-fail2ban
-    network_mode: "host"
+    network_mode: host
     cap_add:
-      - NET_ADMIN
-      - NET_RAW
+    - NET_ADMIN
+    - NET_RAW
     volumes:
-      - ./fail2ban/jail.local:/data/jail.local:ro
-      - ./fail2ban/filter.d:/data/filter.d:ro
-      - caddy_logs:/var/log/caddy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ./fail2ban/jail.local:/data/jail.local:ro
+    - ./fail2ban/filter.d:/data/filter.d:ro
+    - caddy_logs:/var/log/caddy:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - F2B_LOG_TARGET=STDOUT
-      - F2B_LOG_LEVEL=INFO
+    - F2B_LOG_TARGET=STDOUT
+    - F2B_LOG_LEVEL=INFO
     restart: unless-stopped
-
-volumes:
-  caddy_logs:
-    driver: local

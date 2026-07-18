@@ -9,6 +9,7 @@ interface AppState {
   apiKey: string | null;
   tenantName: string | null;
   tenantEmail: string | null;
+  userEmail?: string | null;
   tenantTier: TenantTier | null;
   setCredentials: (tenantId: string, apiKey: string, tenantName: string, tenantEmail: string, tenantTier: TenantTier) => void;
   clearCredentials: () => void;
@@ -30,11 +31,13 @@ export const useAppStore = create<AppState>()(
       apiKey: null,
       tenantName: null,
       tenantEmail: null,
+      userEmail: null,
       tenantTier: null,
       setCredentials: (tenantId, apiKey, tenantName, tenantEmail, tenantTier) => 
-        set({ tenantId, apiKey, tenantName, tenantEmail, tenantTier }),
+        set({ tenantId, apiKey, tenantName, tenantEmail, userEmail: tenantEmail, tenantTier }),
+
       clearCredentials: () => 
-        set({ tenantId: null, apiKey: null, tenantName: null, tenantEmail: null, tenantTier: null, activeJobId: null }),
+        set({ tenantId: null, apiKey: null, tenantName: null, tenantEmail: null, userEmail: null, tenantTier: null, activeJobId: null }),
       isAuthenticated: () => get().apiKey !== null,
       activeJobId: null,
       setActiveJobId: (jobId) => set({ activeJobId: jobId }),

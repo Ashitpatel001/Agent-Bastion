@@ -238,3 +238,174 @@ export function useSimulateTraffic() {
   });
 }
 
+export function useObservabilityTasks() {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['observabilityTasks'],
+    queryFn: () => AbsApiClient.create(apiKey!).getTaskObservability(),
+    enabled: !!apiKey,
+    refetchInterval: 3000,
+  });
+}
+
+export function useObservabilityWorkers() {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['observabilityWorkers'],
+    queryFn: () => AbsApiClient.create(apiKey!).getWorkerObservability(),
+    enabled: !!apiKey,
+    refetchInterval: 3000,
+  });
+}
+
+export function useObservabilitySecurity(days: number = 7) {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['observabilitySecurity', days],
+    queryFn: () => AbsApiClient.create(apiKey!).getSecurityObservability(days),
+    enabled: !!apiKey,
+    refetchInterval: 5000,
+  });
+}
+
+export function useObservabilityTenants() {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['observabilityTenants'],
+    queryFn: () => AbsApiClient.create(apiKey!).getTenantObservability(),
+    enabled: !!apiKey,
+    refetchInterval: 5000,
+  });
+}
+
+export function useObservabilityAuditTrail(page: number = 1, pageSize: number = 50) {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['observabilityAuditTrail', page, pageSize],
+    queryFn: () => AbsApiClient.create(apiKey!).getAuditTrail(page, pageSize),
+    enabled: !!apiKey,
+    refetchInterval: 5000,
+  });
+}
+
+export const useAuditTrail = useObservabilityAuditTrail;
+
+
+export function useObservabilityMetrics() {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['observabilityMetrics'],
+    queryFn: () => AbsApiClient.create(apiKey!).getObservabilityMetrics(),
+    enabled: !!apiKey,
+    refetchInterval: 3000,
+  });
+}
+
+export function useObservabilityHealth() {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['observabilityHealth'],
+    queryFn: () => AbsApiClient.create(apiKey!).getObservabilityHealth(),
+    enabled: !!apiKey,
+    refetchInterval: 3000,
+  });
+}
+
+export function useInfrastructureStatus() {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['infrastructureStatus'],
+    queryFn: () => AbsApiClient.create(apiKey!).getInfrastructureStatus(),
+    enabled: !!apiKey,
+    refetchInterval: 3000,
+  });
+}
+
+export function useApiKeys(skip: number = 0, limit: number = 100) {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['apiKeys', skip, limit],
+    queryFn: () => AbsApiClient.create(apiKey!).getApiKeys(skip, limit),
+    enabled: !!apiKey,
+    refetchInterval: 5000,
+  });
+}
+
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  const { apiKey } = useAppStore();
+  return useMutation({
+    mutationFn: (data: { name: string; scopes?: string[] }) => AbsApiClient.create(apiKey!).createApiKey(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+      queryClient.invalidateQueries({ queryKey: ['dxQuickstart'] });
+    },
+  });
+}
+
+export function useRotateApiKey() {
+  const queryClient = useQueryClient();
+  const { apiKey } = useAppStore();
+  return useMutation({
+    mutationFn: (keyId: string) => AbsApiClient.create(apiKey!).rotateApiKey(keyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+    },
+  });
+}
+
+export function useRevokeApiKey() {
+  const queryClient = useQueryClient();
+  const { apiKey } = useAppStore();
+  return useMutation({
+    mutationFn: (keyId: string) => AbsApiClient.create(apiKey!).revokeApiKey(keyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+      queryClient.invalidateQueries({ queryKey: ['dxQuickstart'] });
+    },
+  });
+}
+
+export function useOrganizations(skip: number = 0, limit: number = 100) {
+  const { apiKey } = useAppStore();
+  return useQuery({
+    queryKey: ['organizations', skip, limit],
+    queryFn: () => AbsApiClient.create(apiKey!).getOrganizations(skip, limit),
+    enabled: !!apiKey,
+    refetchInterval: 5000,
+  });
+}
+
+export function useCreateOrganization() {
+  const queryClient = useQueryClient();
+  const { apiKey } = useAppStore();
+  return useMutation({
+    mutationFn: (data: { name: string; slug?: string; description?: string; email?: string }) => AbsApiClient.create(apiKey!).createOrganization(data),
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+    },
+  });
+}
+
+export function useChangePassword() {
+  const { apiKey } = useAppStore();
+  return useMutation({
+    mutationFn: (data: { current_password?: string; old_password?: string; new_password: string }) => AbsApiClient.create(apiKey!).changePassword(data),
+  });
+}
+
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: (email: string) => AbsApiClient.create().resetPassword(email),
+  });
+}
+
+export function useLogout() {
+  const { apiKey } = useAppStore();
+  return useMutation({
+    mutationFn: () => AbsApiClient.create(apiKey!).logout(),
+  });
+}
+
+

@@ -39,14 +39,35 @@ export default function WorkersDashboardPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Cpu className="size-6 text-primary" />
-            Distributed Worker & Queue Health
+        <div className="space-y-1 max-w-4xl">
+          <h1 className="text-3xl font-bold tracking-tight uppercase flex items-center gap-2">
+            <Cpu className="size-6 text-primary" /> WORKERS
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Real-time status of Celery worker clusters (`abs-worker-agent` and `abs-worker-xai`), active task concurrency, and queue depths.
-          </p>
+          <p className="text-sm text-zinc-400">Distributed execution nodes running your AI agents.</p>
+          
+          <div className="flex flex-wrap gap-3 mt-3 font-mono text-xs text-zinc-300">
+            <span className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800 flex items-center gap-2">
+              <span className={`size-2 rounded-full ${activeWorkerCount > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+              [ {loading ? '...' : activeWorkerCount} Workers Online ]
+            </span>
+            <span className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800">
+              [ Queue Depth: {loading ? '...' : Object.values(queueSizes).reduce((a: any, b: any) => Number(a) + Number(b), 0)} ]
+            </span>
+            <span className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800">
+              [ {loading ? '...' : nodes.reduce((acc: number, n: any) => acc + (n.active_tasks || 0), 0)} Tasks Running ]
+            </span>
+          </div>
+
+          <details className="mt-4 group cursor-pointer">
+            <summary className="text-xs font-semibold text-primary hover:underline list-none inline-flex items-center gap-1">
+              Learn how worker orchestration works <span className="group-open:rotate-90 transition-transform">&gt;</span>
+            </summary>
+            <div className="mt-3 p-4 rounded-xl border border-primary/20 bg-primary/5 text-xs text-zinc-300 leading-relaxed">
+              Agent-Bastion uses decoupled Celery workers to execute AI agent tasks. 
+              By offloading execution to these background nodes via a Redis message broker, the API Gateway remains lightning fast.
+              Features include <strong className="text-white font-mono">Priority Routing</strong>, <strong className="text-white font-mono">Tenant Isolation</strong>, and <strong className="text-white font-mono">Dead-Letter Handling</strong>.
+            </div>
+          </details>
         </div>
         <Button onClick={fetchWorkerHealth} variant="outline" size="sm" className="gap-2" disabled={loading}>
           <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
@@ -102,7 +123,8 @@ export default function WorkersDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {loading ? '...' : Number(Object.values(queueSizes).reduce((a: number, b: number) => Number(a) + Number(b), 0))}
+              {loading ? '...' : Number(Object.values(queueSizes).reduce((a: any, b: any) => Number(a) + Number(b), 0))}
+
             </div>
             <p className="text-xs text-muted-foreground mt-1">Across all priority and isolation queues</p>
           </CardContent>
@@ -129,9 +151,9 @@ export default function WorkersDashboardPage() {
         <Card className="border-dashed border-amber-500/30 bg-amber-500/5">
           <CardContent className="p-8 text-center">
             <AlertTriangle className="size-10 text-amber-500 mx-auto mb-3" />
-            <h3 className="font-semibold text-foreground">No Celery Worker Nodes Detected</h3>
+            <h3 className="font-semibold text-foreground">No Workers Running</h3>
             <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-              Ensure `abs-worker-agent` and `abs-worker-xai` are running in your Docker Compose stack (`docker compose -f docker-compose.dev.yml up`).
+              Start a worker container to begin processing tasks. Ensure `abs-worker-agent` and `abs-worker-xai` are running in your Docker Compose stack.
             </p>
           </CardContent>
         </Card>

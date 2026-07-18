@@ -38,7 +38,3 @@ abs_security.db
 # Ignore Markdown files except essential documentation
 *.md
 !README.md
-!WORKING.md
-!working.md
-!IMPLEMENTATION.md
-!implementation.md

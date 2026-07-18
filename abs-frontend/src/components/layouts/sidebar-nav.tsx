@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/sidebar';
 import { NAVIGATION_ITEMS, APP_NAME } from '@/lib/constants';
 import { useAppStore } from '@/store/app-store';
-import { ShieldCheck, ShieldAlert, LayoutDashboard, Terminal, FileCode2, KeyRound, Settings, LogOut, Activity, BrainCircuit, Code, Cpu, Layers, Server } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, LayoutDashboard, Terminal, FileCode2, KeyRound, Settings, LogOut, Activity, BrainCircuit, Code, Cpu, Layers, Server, Users } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 
@@ -33,6 +33,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Cpu,
   Layers,
   Server,
+  Users,
 };
 
 export function SidebarNav() {

@@ -1,124 +1,33 @@
-# ==============================================================================
-# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
-# Observability & Monitoring Overlay (docker-compose.monitoring.yml)
-#
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --build
-# ==============================================================================
-
-x-backend-env: &backend-env
-  PYTHONPATH: /app/src:/app
-  POSTGRES_HOST: postgres
-  POSTGRES_USER: ${POSTGRES_USER:-abs_user}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
-  POSTGRES_DB: ${POSTGRES_DB:-abs_db}
-  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
-  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
-  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
-  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-  ENV: production
-
+version: '3.8'
 services:
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: abs-prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=15d'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=15d
+    - --web.enable-lifecycle
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    # Network Isolation (Task 7.5): Internal access only via Caddy or Grafana
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - prometheus_data:/prometheus
     restart: unless-stopped
     networks:
-      - abs-backend
-
-  redis-exporter:
-    image: oliver006/redis_exporter:v1.61.0
-    container_name: abs-redis-exporter
-    environment:
-      REDIS_ADDR: "redis://abs-redis:6379"
-    depends_on:
-      - redis
-    restart: unless-stopped
-    networks:
-      - abs-backend
-
-  loki:
-    image: grafana/loki:3.1.0
-    container_name: abs-loki
-    command: -config.file=/etc/loki/local-config.yaml
-    volumes:
-      - loki_data:/loki
-    restart: unless-stopped
-    networks:
-      - abs-backend
-
-  promtail:
-    image: grafana/promtail:3.1.0
-    container_name: abs-promtail
-    command: -config.file=/etc/promtail/config.yml
-    volumes:
-      - ./promtail-config.yml:/etc/promtail/config.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - caddy_logs:/var/log/caddy:ro
-    depends_on:
-      - loki
-    restart: unless-stopped
-    networks:
-      - abs-backend
-
+    - abs-backend
   grafana:
     image: grafana/grafana:11.1.0
     container_name: abs-grafana
     environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-abs_grafana_secret_2026}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_ANALYTICS_REPORTING_ENABLED=false
-    volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    # Only Grafana (3001) and Caddy (80/443) exposed on host (Task 7.5)
+    - GF_SECURITY_ADMIN_USER=
+    - GF_SECURITY_ADMIN_PASSWORD=
     ports:
-      - "${GRAFANA_PORT:-3001}:3000"
+    - :3000
     depends_on:
-      - prometheus
-      - loki
+    - prometheus
     restart: unless-stopped
     networks:
-      - abs-backend
-      - abs-frontend
-
-  flower:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: abs-flower
-    command: ["celery", "-A", "src.workers.celery_app", "flower", "--port=5555", "--persistent=True"]
-    environment:
-      <<: *backend-env
-    depends_on:
-      - redis
-    restart: unless-stopped
-    networks:
-      - abs-backend
-      - abs-frontend
-
+    - abs-backend
+    - abs-frontend
 volumes:
-  prometheus_data:
-  loki_data:
-  grafana_data:
-  caddy_logs:
-
-networks:
-  abs-backend:
-    driver: bridge
-    internal: true
-  abs-frontend:
-    driver: bridge
+  prometheus_data: null
+  grafana_data: null

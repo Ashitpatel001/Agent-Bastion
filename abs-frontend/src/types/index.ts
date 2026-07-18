@@ -87,7 +87,9 @@ export interface PolicyUpdateRequest {
 
 export interface AgentSession {
   id: string;
+  session_id?: string;
   tenant_id: string;
+
   status: SessionStatus;
   task_prompt: string;
   target_url: string | null;
@@ -102,7 +104,9 @@ export interface AgentSession {
 export interface AgentSessionCreateRequest {
   task_prompt: string;
   target_url?: string;
+  priority?: number;
 }
+
 
 export interface AuditLog {
   id: string;

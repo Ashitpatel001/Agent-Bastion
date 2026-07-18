@@ -54,10 +54,9 @@ async def authenticate_user_logic(db: AsyncSession, email: str, password: str) -
 @router.post("/register", response_model=RegisterResponse)
 async def register(
     req: RegisterRequest,
-    current_admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ) -> Any:
-    """Register a new Tenant and Owner/Admin User account (Admin-only invite per Task 2.3)."""
+    """Register a new Tenant and Owner/Admin User account."""
     existing_t = await crud.get_tenant_by_email(db, req.email)
     if existing_t:
         raise HTTPException(status_code=400, detail="An account with this email already exists.")

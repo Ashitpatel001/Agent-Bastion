@@ -1,14 +1,4 @@
-# ==============================================================================
-# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
-# Canonical Production Docker Compose Stack (docker-compose.yml)
-#
-# Usage:
-#   docker compose up -d --build                               # Core Production Stack (Caddy, API, UI, Workers, DBs)
-#   docker compose --profile monitoring up -d --build          # Core + Prometheus, Loki, Grafana, Flower
-#   docker compose --profile monitoring --profile security up  # Core + Monitoring + fail2ban IPS
-# ==============================================================================
-
-x-backend-env: &backend-env
+x-backend-env:
   PYTHONPATH: /app/src:/app
   POSTGRES_HOST: postgres
   POSTGRES_USER: ${POSTGRES_USER:-abs_user}
@@ -20,11 +10,12 @@ x-backend-env: &backend-env
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
   ENV: production
   ENVIRONMENT: production
-
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+  PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+  ENABLE_BROWSER_EXECUTION: ${ENABLE_BROWSER_EXECUTION:-false}
+  ENABLE_AGENT_RUNTIME: ${ENABLE_AGENT_RUNTIME:-true}
 services:
-
-  # ── 1. Infrastructure Layer (Strict Internal Routing Only) ──────────────────
-
   postgres:
     image: postgres:16-alpine
     container_name: abs-postgres
@@ -33,73 +24,104 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
       POSTGRES_DB: ${POSTGRES_DB:-abs_db}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+    - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}"]
+      test:
+      - CMD-SHELL
+      - pg_isready -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
     networks:
-      - abs-backend
-
+    - abs-backend
   redis:
     image: redis:7-alpine
     container_name: abs-redis
-    command: >
-      redis-server
-        --appendonly yes
-        --maxmemory 256mb
-        --maxmemory-policy allkeys-lru
-        --save 60 1000
+    command: "redis-server\n  --appendonly yes\n  --maxmemory 256mb\n  --maxmemory-policy\
+      \ allkeys-lru\n  --save 60 1000\n"
     volumes:
-      - redis_data:/data
+    - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+      - CMD
+      - redis-cli
+      - ping
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
     networks:
-      - abs-backend
-
-  # ── 2. Database Initialization Service ──────────────────────────────────────
-
+    - abs-backend
   db-init:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-db-init
-    command: ["python", "-c", "import asyncio; from db.database import init_db; asyncio.run(init_db())"]
+    command:
+    - python
+    - -c
+    - import asyncio; from db.database import init_db; asyncio.run(init_db())
     environment:
-      <<: *backend-env
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: production
+      ENVIRONMENT: production
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+      ENABLE_BROWSER_EXECUTION: ${ENABLE_BROWSER_EXECUTION:-false}
+      ENABLE_AGENT_RUNTIME: ${ENABLE_AGENT_RUNTIME:-true}
     env_file:
-      - path: .env
-        required: false
-    volumes:
-      - ./src:/app/src
+    - path: .env
+      required: false
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - abs-backend
-
-  # ── 3. Core FastAPI Gateway ─────────────────────────────────────────────────
-
+    - abs-backend
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-api
-    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    command:
+    - uvicorn
+    - src.api.main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8000'
+    - --workers
+    - '2'
     environment:
-      <<: *backend-env
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: production
+      ENVIRONMENT: production
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+      ENABLE_BROWSER_EXECUTION: ${ENABLE_BROWSER_EXECUTION:-false}
+      ENABLE_AGENT_RUNTIME: ${ENABLE_AGENT_RUNTIME:-true}
     env_file:
-      - path: .env
-        required: false
-    volumes:
-      - ./src:/app/src
+    - path: .env
+      required: false
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,32 +131,59 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      - abs-backend
-      - abs-frontend
+    - abs-backend
+    - abs-frontend
     deploy:
       resources:
         limits:
           memory: 512M
         reservations:
           memory: 128M
-
-  # ── 4. Distributed Celery Agent & XAI Workers ───────────────────────────────
-
   worker-agent:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-worker-agent
-    command: ["celery", "-A", "src.workers.celery_app", "worker", "-Q", "agents", "--loglevel=info", "--concurrency=1"]
+    command:
+    - celery
+    - -A
+    - src.workers.celery_app
+    - worker
+    - -Q
+    - agents
+    - --loglevel=info
+    - --concurrency=1
     environment:
-      <<: *backend-env
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: production
+      ENVIRONMENT: production
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+      ENABLE_BROWSER_EXECUTION: ${ENABLE_BROWSER_EXECUTION:-false}
+      ENABLE_AGENT_RUNTIME: ${ENABLE_AGENT_RUNTIME:-true}
     env_file:
-      - path: .env
-        required: false
+    - path: .env
+      required: false
     volumes:
-      - ./src:/app/src
-      - agent_screenshots:/app/src/security/dashboard/screenshots
-      - agent_diffs:/app/src/security/dashboard/diffs
+    - agent_screenshots:/app/src/security/dashboard/screenshots
+    - agent_diffs:/app/src/security/dashboard/diffs
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - celery -A src.workers.celery_app status || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -142,7 +191,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - abs-backend
+    - abs-backend
     deploy:
       resources:
         limits:
@@ -150,22 +199,50 @@ services:
         reservations:
           memory: 512M
     security_opt:
-      - seccomp:unconfined
-    shm_size: '512m'
-
+    - seccomp:unconfined
+    shm_size: 512m
   worker-xai:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-worker-xai
-    command: ["celery", "-A", "src.workers.celery_app", "worker", "-Q", "xai", "--loglevel=info", "--concurrency=4"]
+    command:
+    - celery
+    - -A
+    - src.workers.celery_app
+    - worker
+    - -Q
+    - xai
+    - --loglevel=info
+    - --concurrency=2
     environment:
-      <<: *backend-env
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: production
+      ENVIRONMENT: production
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+      ENABLE_BROWSER_EXECUTION: ${ENABLE_BROWSER_EXECUTION:-false}
+      ENABLE_AGENT_RUNTIME: ${ENABLE_AGENT_RUNTIME:-true}
     env_file:
-      - path: .env
-        required: false
-    volumes:
-      - ./src:/app/src
+    - path: .env
+      required: false
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - celery -A src.workers.celery_app status || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,16 +250,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - abs-backend
+    - abs-backend
     deploy:
       resources:
         limits:
           memory: 512M
         reservations:
           memory: 128M
-
-  # ── 5. Next.js Production Standalone Frontend ───────────────────────────────
-
   frontend:
     build:
       context: .
@@ -190,166 +264,44 @@ services:
       target: runner
     container_name: abs-frontend
     environment:
-      - NEXT_PUBLIC_API_URL=/api
+    - NEXT_PUBLIC_API_URL=/api
     depends_on:
-      - api
+    - api
     restart: unless-stopped
     networks:
-      - abs-frontend
-
-  # ── 6. Caddy Reverse Proxy & WAF Gateway (Production TLS / HTTPS) ───────────
-  # ONLY Caddy (80/443) and Grafana (3001 when enabled) are exposed to host
-
+    - abs-frontend
   caddy:
     image: caddy:2-alpine
     container_name: abs-caddy
     ports:
-      - "${CADDY_HTTP_PORT:-80}:80"
-      - "${CADDY_HTTPS_PORT:-443}:443"
-      - "${CADDY_HTTPS_PORT:-443}:443/udp"
+    - ${CADDY_HTTP_PORT:-80}:80
+    - ${CADDY_HTTPS_PORT:-443}:443
+    - ${CADDY_HTTPS_PORT:-443}:443/udp
     environment:
-      - CADDY_DOMAIN=${CADDY_DOMAIN:-localhost}
+    - CADDY_DOMAIN=${CADDY_DOMAIN:-localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-      - caddy_logs:/var/log/caddy
+    - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    - caddy_data:/data
+    - caddy_config:/config
+    - caddy_logs:/var/log/caddy
     depends_on:
-      - api
-      - frontend
+    - api
+    - frontend
     restart: unless-stopped
     networks:
-      - abs-backend
-      - abs-frontend
-
-  # ── 7. Optional Observability & Monitoring Profile (--profile monitoring) ───
-
-  prometheus:
-    image: prom/prometheus:v2.53.0
-    container_name: abs-prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=15d'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    restart: unless-stopped
-    networks:
-      - abs-backend
-    profiles:
-      - monitoring
-
-  loki:
-    image: grafana/loki:3.1.0
-    container_name: abs-loki
-    command: -config.file=/etc/loki/local-config.yaml
-    volumes:
-      - loki_data:/loki
-    restart: unless-stopped
-    networks:
-      - abs-backend
-    profiles:
-      - monitoring
-
-  promtail:
-    image: grafana/promtail:3.1.0
-    container_name: abs-promtail
-    command: -config.file=/etc/promtail/config.yml
-    volumes:
-      - ./promtail-config.yml:/etc/promtail/config.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - caddy_logs:/var/log/caddy:ro
-    depends_on:
-      - loki
-    restart: unless-stopped
-    networks:
-      - abs-backend
-    profiles:
-      - monitoring
-
-  grafana:
-    image: grafana/grafana:11.1.0
-    container_name: abs-grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-abs_grafana_secret_2026}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_ANALYTICS_REPORTING_ENABLED=false
-    volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    ports:
-      - "${GRAFANA_PORT:-3001}:3000"
-    depends_on:
-      - prometheus
-      - loki
-    restart: unless-stopped
-    networks:
-      - abs-backend
-      - abs-frontend
-    profiles:
-      - monitoring
-
-  flower:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: abs-flower
-    command: ["celery", "-A", "src.workers.celery_app", "flower", "--port=5555", "--persistent=True"]
-    environment:
-      <<: *backend-env
-    depends_on:
-      - redis
-    restart: unless-stopped
-    networks:
-      - abs-backend
-      - abs-frontend
-    profiles:
-      - monitoring
-
-  # ── 8. Optional Security IPS Profile (--profile security) ───────────────────
-
-  fail2ban:
-    image: crazymax/fail2ban:latest
-    container_name: abs-fail2ban
-    network_mode: "host"
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    volumes:
-      - ./fail2ban/jail.local:/data/jail.local:ro
-      - ./fail2ban/filter.d:/data/filter.d:ro
-      - caddy_logs:/var/log/caddy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - F2B_LOG_TARGET=STDOUT
-      - F2B_LOG_LEVEL=INFO
-    restart: unless-stopped
-    profiles:
-      - security
-
-# ── Volumes ───────────────────────────────────────────────────────────────────
+    - abs-backend
+    - abs-frontend
 volumes:
-  postgres_data:
-  redis_data:
-  agent_screenshots:
-  agent_diffs:
-  caddy_data:
-  caddy_config:
-  caddy_logs:
-  prometheus_data:
-  loki_data:
-  grafana_data:
-
-# ── Networks ──────────────────────────────────────────────────────────────────
+  postgres_data: null
+  redis_data: null
+  agent_screenshots: null
+  agent_diffs: null
+  caddy_data: null
+  caddy_config: null
+  caddy_logs: null
 networks:
   abs-backend:
     driver: bridge
-    internal: true     # Zero external host access — strict internal routing
+    internal: true
   abs-frontend:
-    driver: bridge     # Internal bridge allowing Caddy -> Frontend -> API routing
+    driver: bridge

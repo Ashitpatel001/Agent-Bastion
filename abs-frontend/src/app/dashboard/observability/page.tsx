@@ -47,14 +47,32 @@ export default function ObservabilityDashboardPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Layers className="size-6 text-primary" />
-            System Observability & Security Intelligence
+        <div className="space-y-1 max-w-4xl">
+          <h1 className="text-3xl font-bold tracking-tight uppercase flex items-center gap-2">
+            <Layers className="size-6 text-primary" /> OBSERVABILITY & INTELLIGENCE
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Production telemetry, task lifecycle analytics, security detection counters, and rate-limiting metrics.
-          </p>
+          <p className="text-sm text-zinc-400">Production telemetry and agent execution traces.</p>
+          
+          <div className="flex flex-wrap gap-3 mt-3 font-mono text-xs text-zinc-300">
+            <span className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800">
+              [ Total Tasks: {loading ? '...' : (summary.total_tasks_submitted ?? tStats.total_tasks ?? 0)} ]
+            </span>
+            <span className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800">
+              [ Active Sessions: {loading ? '...' : (summary.active_sessions ?? tStats.running_tasks ?? 0)} ]
+            </span>
+            <span className="px-2 py-1 rounded bg-zinc-900 border border-zinc-800 flex items-center gap-2">
+              [ Avg Latency: {loading ? '...' : `${tStats.average_execution_time_seconds || 0}s`} ]
+            </span>
+          </div>
+
+          <details className="mt-4 group cursor-pointer">
+            <summary className="text-xs font-semibold text-primary hover:underline list-none inline-flex items-center gap-1">
+              Learn how observability works <span className="group-open:rotate-90 transition-transform">&gt;</span>
+            </summary>
+            <div className="mt-3 p-4 rounded-xl border border-primary/20 bg-primary/5 text-xs text-zinc-300 leading-relaxed max-w-2xl">
+              Production AI agents should never behave as black boxes. Agent-Bastion provides a centralized observability engine to track the entire lifecycle of an autonomous AI agent, including <strong className="text-white font-mono">Metrics & Latency</strong>, <strong className="text-white font-mono">Execution Traces</strong>, and <strong className="text-white font-mono">Security Audits</strong>.
+            </div>
+          </details>
         </div>
         <div className="flex items-center gap-3">
           <select 

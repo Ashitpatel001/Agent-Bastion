@@ -1,14 +1,4 @@
-# ==============================================================================
-# Agent-Bastion v2.0 — Production Layer For Autonomous AI Agents
-# Local Development Mode Stack (docker-compose.dev.yml)
-#
-# Usage (3-Minute Setup):
-#   1. cp .env.example .env
-#   2. docker compose -f docker-compose.dev.yml up --build
-#   3. Open http://localhost in your browser
-# ==============================================================================
-
-x-backend-env: &backend-env
+x-backend-env:
   PYTHONPATH: /app/src:/app
   POSTGRES_HOST: postgres
   POSTGRES_USER: ${POSTGRES_USER:-abs_user}
@@ -20,11 +10,12 @@ x-backend-env: &backend-env
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
   ENV: development
   ENVIRONMENT: development
-
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+  PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+  ENABLE_BROWSER_EXECUTION: ${ENABLE_BROWSER_EXECUTION:-false}
+  ENABLE_AGENT_RUNTIME: ${ENABLE_AGENT_RUNTIME:-true}
 services:
-
-  # ── 1. Infrastructure Layer (PostgreSQL & Redis) ────────────────────────────
-
   postgres:
     image: postgres:16-alpine
     container_name: abs-dev-postgres
@@ -33,81 +24,117 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
       POSTGRES_DB: ${POSTGRES_DB:-abs_db}
     volumes:
-      - postgres_dev_data:/var/lib/postgresql/data
+    - postgres_dev_data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    - ${POSTGRES_PORT:-5432}:5432
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}"]
+      test:
+      - CMD-SHELL
+      - pg_isready -U $${POSTGRES_USER:-abs_user} -d $${POSTGRES_DB:-abs_db}
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 5s
     restart: unless-stopped
     networks:
-      - abs-dev-network
-
+    - abs-dev-network
   redis:
     image: redis:7-alpine
     container_name: abs-dev-redis
-    command: >
-      redis-server
-        --appendonly yes
-        --maxmemory 256mb
-        --maxmemory-policy allkeys-lru
+    command: "redis-server\n  --appendonly yes\n  --maxmemory 256mb\n  --maxmemory-policy\
+      \ allkeys-lru\n"
     volumes:
-      - redis_dev_data:/data
+    - redis_dev_data:/data
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+    - ${REDIS_PORT:-6379}:6379
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+      - CMD
+      - redis-cli
+      - ping
       interval: 5s
       timeout: 5s
       retries: 5
     restart: unless-stopped
     networks:
-      - abs-dev-network
-
-  # ── 2. Database Initialization Service ──────────────────────────────────────
-
+    - abs-dev-network
   db-init:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-dev-db-init
-    command: ["python", "-c", "import asyncio; from db.database import init_db; asyncio.run(init_db())"]
+    command:
+    - python
+    - -c
+    - import asyncio; from db.database import init_db; asyncio.run(init_db())
     environment:
-      <<: *backend-env
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: development
+      ENVIRONMENT: development
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
     env_file:
-      - path: .env
-        required: false
+    - path: .env
+      required: false
     volumes:
-      - ./src:/app/src
+    - ./src:/app/src
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - abs-dev-network
-
-  # ── 3. Core FastAPI Gateway (Hot Reloading Enabled) ─────────────────────────
-
+    - abs-dev-network
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-dev-api
-    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--reload"]
+    command:
+    - uvicorn
+    - src.api.main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8000'
+    - --workers
+    - '1'
+    - --reload
+    - --reload-dir
+    - src
     environment:
-      <<: *backend-env
-      DEBUG: "True"
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: development
+      ENVIRONMENT: development
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DEBUG: 'True'
     env_file:
-      - path: .env
-        required: false
+    - path: .env
+      required: false
     volumes:
-      - ./src:/app/src
+    - ./src:/app/src
     ports:
-      - "${API_PORT:-8000}:8000"
+    - ${API_PORT:-8000}:8000
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        || exit 1
       interval: 10s
       timeout: 5s
       retries: 5
@@ -121,25 +148,50 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      - abs-dev-network
-
-  # ── 4. Distributed Celery Agent Workers ─────────────────────────────────────
-
+    - abs-dev-network
   worker-agent:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-dev-worker-agent
-    command: ["celery", "-A", "src.workers.celery_app", "worker", "-Q", "agents", "--loglevel=info", "--concurrency=1"]
+    command:
+    - celery
+    - -A
+    - src.workers.celery_app
+    - worker
+    - -Q
+    - agents
+    - --loglevel=info
+    - --concurrency=1
     environment:
-      <<: *backend-env
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: development
+      ENVIRONMENT: development
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
     env_file:
-      - path: .env
-        required: false
+    - path: .env
+      required: false
     volumes:
-      - ./src:/app/src
-      - agent_dev_screenshots:/app/src/security/dashboard/screenshots
-      - agent_dev_diffs:/app/src/security/dashboard/diffs
+    - ./src:/app/src
+    - agent_dev_screenshots:/app/src/security/dashboard/screenshots
+    - agent_dev_diffs:/app/src/security/dashboard/diffs
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - celery -A src.workers.celery_app status || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -149,21 +201,48 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      - abs-dev-network
-
+    - abs-dev-network
   worker-xai:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: abs-dev-worker-xai
-    command: ["celery", "-A", "src.workers.celery_app", "worker", "-Q", "xai", "--loglevel=info", "--concurrency=2"]
+    command:
+    - celery
+    - -A
+    - src.workers.celery_app
+    - worker
+    - -Q
+    - xai
+    - --loglevel=info
+    - --concurrency=1
     environment:
-      <<: *backend-env
+      PYTHONPATH: /app/src:/app
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-abs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abs_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-abs_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://abs_user:abs_secret_change_me@postgres:5432/abs_db}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ENV: development
+      ENVIRONMENT: development
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
     env_file:
-      - path: .env
-        required: false
+    - path: .env
+      required: false
     volumes:
-      - ./src:/app/src
+    - ./src:/app/src
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - celery -A src.workers.celery_app status || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,10 +252,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks:
-      - abs-dev-network
-
-  # ── 5. Next.js 15 Real-Time Frontend (Live Reloading) ───────────────────────
-
+    - abs-dev-network
   frontend:
     build:
       context: .
@@ -186,30 +262,35 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:80
       PORT: 3000
+      NEXT_TELEMETRY_DISABLED: 1
+      NODE_ENV: development
     volumes:
-      - ./abs-frontend/src:/app/src
-      - ./abs-frontend/public:/app/public
+    - ./abs-frontend/src:/app/src
+    - ./abs-frontend/public:/app/public
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+    - ${FRONTEND_PORT:-3000}:3000
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - abs-dev-network
-
-  # ── 6. Caddy Dev Gateway (HTTP ONLY — http://localhost) ─────────────────────
-
+    - abs-dev-network
   caddy:
     image: caddy:2-alpine
     container_name: abs-dev-caddy
-    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    command:
+    - caddy
+    - run
+    - --config
+    - /etc/caddy/Caddyfile
+    - --adapter
+    - caddyfile
     volumes:
-      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
-      - caddy_dev_data:/data
-      - caddy_dev_config:/config
+    - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+    - caddy_dev_data:/data
+    - caddy_dev_config:/config
     ports:
-      - "${CADDY_HTTP_PORT:-80}:80"
+    - ${CADDY_HTTP_PORT:-80}:80
     depends_on:
       api:
         condition: service_healthy
@@ -217,16 +298,14 @@ services:
         condition: service_started
     restart: unless-stopped
     networks:
-      - abs-dev-network
-
+    - abs-dev-network
 volumes:
-  postgres_dev_data:
-  redis_dev_data:
-  agent_dev_screenshots:
-  agent_dev_diffs:
-  caddy_dev_data:
-  caddy_dev_config:
-
+  postgres_dev_data: null
+  redis_dev_data: null
+  agent_dev_screenshots: null
+  agent_dev_diffs: null
+  caddy_dev_data: null
+  caddy_dev_config: null
 networks:
   abs-dev-network:
     driver: bridge

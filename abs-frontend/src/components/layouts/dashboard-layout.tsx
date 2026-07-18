@@ -19,19 +19,21 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Protect dashboard routes
+  const isDocs = pathname?.startsWith('/dashboard/docs');
+  
   React.useEffect(() => {
-    if (mounted && !isAuthenticated && pathname?.startsWith('/dashboard')) {
+    if (mounted && !isAuthenticated && pathname?.startsWith('/dashboard') && !isDocs) {
       router.push('/login');
     }
-  }, [mounted, isAuthenticated, pathname, router]);
+  }, [mounted, isAuthenticated, pathname, router, isDocs]);
 
   // Don't render until mounted to prevent hydration errors from zustand persist
   if (!mounted) {
     return null;
   }
 
-  // If not authenticated and trying to access dashboard, don't render children
-  if (!isAuthenticated && pathname?.startsWith('/dashboard')) {
+  // If not authenticated and trying to access dashboard (except docs), don't render children
+  if (!isAuthenticated && pathname?.startsWith('/dashboard') && !isDocs) {
     return null;
   }
 

@@ -245,6 +245,12 @@ export class AbsApiClient {
     return this.fetch<T>(endpoint, options);
   }
 
+  public async getLlmStatus(): Promise<Record<string, any>> {
+    return this.fetch<Record<string, any>>('/api/v1/system/llm-status', {
+      method: 'GET',
+    });
+  }
+
   async getAnalyticsOverview(): Promise<SecurityStats> {
     return this.request('/api/v1/analytics/overview');
   }

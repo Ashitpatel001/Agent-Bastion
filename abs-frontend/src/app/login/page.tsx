@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -38,19 +38,20 @@ const forgotSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid registered email address.' }),
 });
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const loginMutation = useLogin();
   const registerMutation = useRegisterV1();
   const resetMutation = useResetPassword();
   const setCredentials = useAppStore((state) => state.setCredentials);
-  const [activeTab, setActiveTab] = React.useState('signin');
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = React.useState(searchParams?.get('tab') || 'signin');
 
   const loginForm = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: 'admin@abss.internal',
-      password: 'Admin123!',
+      email: '',
+      password: '',
     },
   });
 
@@ -174,7 +175,7 @@ export default function LoginPage() {
                         <FormControl>
                           <div className="relative">
                             <Mail className="absolute left-3.5 top-3 h-4 w-4 text-zinc-500" />
-                            <Input placeholder="admin@abss.internal" {...field} className="pl-10 bg-zinc-900 border-zinc-800 text-white rounded-xl focus:border-primary" />
+                            <Input placeholder="you@company.com" {...field} className="pl-10 bg-zinc-900 border-zinc-800 text-white rounded-xl focus:border-primary" />
                           </div>
                         </FormControl>
                         <FormMessage />
@@ -320,7 +321,7 @@ export default function LoginPage() {
                         <FormControl>
                           <div className="relative">
                             <Mail className="absolute left-3.5 top-3 h-4 w-4 text-zinc-500" />
-                            <Input type="email" placeholder="admin@abss.internal" {...field} className="pl-10 bg-zinc-900 border-zinc-800 text-white rounded-xl focus:border-primary" />
+                            <Input type="email" placeholder="you@company.com" {...field} className="pl-10 bg-zinc-900 border-zinc-800 text-white rounded-xl focus:border-primary" />
                           </div>
                         </FormControl>
                         <FormMessage />
@@ -418,5 +419,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <React.Suspense fallback={<div className="flex min-h-screen bg-zinc-950 items-center justify-center"><Loader2 className="animate-spin text-primary size-8" /></div>}>
+      <LoginContent />
+    </React.Suspense>
   );
 }

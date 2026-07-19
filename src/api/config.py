@@ -103,13 +103,23 @@ class Settings(BaseSettings):
     SUSTAINED_WINDOW: int = Field(default=300, description="Sustained traffic window in seconds")
 
     # Agent / LLM Configuration
-    AGENT_LLM_MODEL: str = Field(default="llama-3.3-70b-versatile", description="Model name for browser automation agent")
     AGENT_MAX_STEPS: int = Field(default=25, description="Maximum browser steps allowed per session")
-    LLM_PROVIDER: str = Field(default="groq", description="Default LLM provider")
+    PRIMARY_LLM_PROVIDER: str = Field(default="gemini", description="Default LLM provider (gemini, openai, groq)")
+    LLM_PROVIDER: str = Field(default="gemini", description="Default LLM provider fallback")
+    
+    # Provider Keys
     GROQ_API_KEY: str = Field(default="", description="Groq API Key")
     OPENAI_API_KEY: str = Field(default="", description="OpenAI API Key")
     GEMINI_API_KEY: str = Field(default="", description="Gemini API Key")
-    XAI_MODEL: str = Field(default="llama-3.3-70b-versatile", description="Model name for XAI explanation generator")
+    
+    # Models
+    AGENT_LLM_MODEL: str = Field(default="gemini-2.5-flash", description="Model name for browser automation agent")
+    XAI_MODEL: str = Field(default="gemini-2.5-flash", description="Model name for XAI explanation generator")
+    
+    # Worker and Runtime Timeouts
+    WORKER_TIMEOUT_SECONDS: int = Field(default=360, description="Celery worker hard timeout")
+    MAX_BROWSER_RUNTIME_SECONDS: int = Field(default=300, description="Browser use runtime soft timeout")
+    MAX_RETRIES: int = Field(default=3, description="Maximum task retries")
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

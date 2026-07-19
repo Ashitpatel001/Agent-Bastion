@@ -166,6 +166,28 @@ export function useSettings() {
   });
 }
 
+export function useTenantSettings() {
+  const apiKey = useAppStore((state) => state.apiKey);
+  
+  return useQuery({
+    queryKey: ['tenantSettings'],
+    queryFn: () => AbsApiClient.create(apiKey!).getSettings(),
+    enabled: !!apiKey,
+  });
+}
+
+export function useLlmStatus() {
+  const apiKey = useAppStore((state) => state.apiKey);
+  
+  return useQuery({
+    queryKey: ['llmStatus'],
+    queryFn: () => AbsApiClient.create(apiKey!).getLlmStatus(),
+    enabled: !!apiKey,
+    refetchInterval: 5000,
+  });
+}
+
+
 export function useUpdateSettings() {
   const queryClient = useQueryClient();
   const apiKey = useAppStore((state) => state.apiKey);

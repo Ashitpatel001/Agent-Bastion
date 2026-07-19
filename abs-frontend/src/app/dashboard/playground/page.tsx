@@ -5,17 +5,17 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { useSubmitAgentTask, useAgentStatus, useCancelAgentTask } from '@/hooks/use-api';
+import { useSubmitAgentTask, useAgentStatus, useCancelAgentTask, useLlmStatus } from '@/hooks/use-api';
 import { useAppStore } from '@/store/app-store';
+import { SystemConfigStatus } from '@/components/system-config-status';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Loader2, Terminal, StopCircle, RefreshCw, CheckCircle2, AlertCircle, ShieldCheck, Activity, Cpu, Code2, Globe, Clock, Workflow, Network, Fingerprint, ChevronRight } from 'lucide-react';
+import { Loader2, Terminal, StopCircle, RefreshCw, CheckCircle2, AlertCircle, ShieldCheck, Activity, Cpu, Code2, Globe, Clock, Workflow, Network, Fingerprint, ChevronRight, ChevronDown } from 'lucide-react';
 import { SessionStatus } from '@/types';
 import { SESSION_STATUS_COLORS } from '@/lib/constants';
 
@@ -103,6 +103,7 @@ export default function PlaygroundPage() {
   const { activeJobId, setActiveJobId, tenantName } = useAppStore();
   const submitTask = useSubmitAgentTask();
   const cancelTask = useCancelAgentTask();
+  const { data: llmStatus } = useLlmStatus();
   
   const { data: jobStatus } = useAgentStatus(activeJobId);
   
@@ -262,6 +263,8 @@ abs run \\
       <div className="grid lg:grid-cols-12 gap-8 items-start flex-1 min-h-0">
         {/* Left Column: Configuration */}
         <div className="lg:col-span-4 flex flex-col gap-6">
+          <SystemConfigStatus />
+          
           <Card className="glass border-primary/20 bg-zinc-950/60 shadow-xl">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg font-semibold text-white">
@@ -331,18 +334,23 @@ abs run \\
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-zinc-300 font-semibold">Worker Queue</FormLabel>
-                          <Select disabled={isActive} onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="bg-zinc-900 border-zinc-700">
-                                <SelectValue placeholder="Select queue" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="agents">agents (Standard)</SelectItem>
-                              <SelectItem value="priority_agents">priority_agents (Fast)</SelectItem>
-                              <SelectItem value="xai">xai (Analysis)</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <FormControl>
+                            <div className="relative">
+                              <select 
+                                disabled={isActive} 
+                                value={field.value} 
+                                onChange={field.onChange} 
+                                className="flex h-10 w-full appearance-none items-center justify-between rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50 text-white"
+                              >
+                                <option value="agents">agents (Standard)</option>
+                                <option value="priority_agents">priority_agents (Fast)</option>
+                                <option value="xai">xai (Analysis)</option>
+                              </select>
+                              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3">
+                                <ChevronDown className="h-4 w-4 opacity-50 text-white" />
+                              </div>
+                            </div>
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -380,9 +388,9 @@ abs run \\
                         </Button>
                       </>
                     ) : (
-                      <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 py-6 text-sm" disabled={submitTask.isPending}>
+                      <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 py-6 text-sm" disabled={submitTask.isPending || !llmStatus?.ready}>
                         {submitTask.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Terminal className="mr-2 h-5 w-5" />}
-                        Run Autonomous Agent
+                        {llmStatus?.ready ? 'Run Autonomous Agent' : 'Configure LLM First'}
                       </Button>
                     )}
                   </div>
@@ -475,7 +483,7 @@ abs run \\
                         {jobStatus.status}
                       </Badge>
                     ) : (
-                      <span className="text-sm font-bold text-zinc-400 mt-1">IDLE</span>
+                      <span className="text-sm font-bold text-zinc-500 mt-1">AWAITING TASK</span>
                     )}
                   </CardContent>
                 </Card>
@@ -484,7 +492,7 @@ abs run \\
                     <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Worker Node</span>
                     <div className="flex items-center gap-1.5 mt-1 text-sm font-bold text-zinc-300">
                       <Cpu className="size-4 text-cyan-500" />
-                      {isActive ? 'abs-worker-agent' : 'N/A'}
+                      {isActive ? 'abs-worker-agent' : <span className="text-zinc-500 text-xs font-medium uppercase tracking-wider">Awaiting Assignment</span>}
                     </div>
                   </CardContent>
                 </Card>
@@ -492,7 +500,7 @@ abs run \\
                   <CardContent className="p-4 flex flex-col items-center justify-center text-center gap-1 h-full">
                     <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Risk Score</span>
                     <div className="flex items-center gap-1.5 mt-1 text-2xl font-bold text-emerald-400">
-                      {jobStatus?.status === SessionStatus.COMPLETED ? '0' : '--'}
+                      {jobStatus?.status === SessionStatus.COMPLETED ? '0' : <span className="text-zinc-500 text-xs font-medium uppercase tracking-wider mt-1">Pending Analysis</span>}
                     </div>
                   </CardContent>
                 </Card>
@@ -502,8 +510,8 @@ abs run \\
                     <div className="flex items-center gap-1.5 mt-1 text-sm font-medium text-cyan-400">
                       <Clock className="size-4 text-cyan-500" />
                       {jobStatus?.started_at && jobStatus?.completed_at 
-                        ? \`\${((new Date(jobStatus.completed_at).getTime() - new Date(jobStatus.started_at).getTime()) / 1000).toFixed(2)}s\`
-                        : isActive ? 'Running...' : '--'}
+                        ? `${((new Date(jobStatus.completed_at).getTime() - new Date(jobStatus.started_at).getTime()) / 1000).toFixed(2)}s`
+                        : isActive ? 'Running...' : <span className="text-zinc-500 text-xs font-medium uppercase tracking-wider">Not Started</span>}
                     </div>
                   </CardContent>
                 </Card>
@@ -551,7 +559,7 @@ abs run \\
                         <div className="text-zinc-500 mb-6">
                           <div className="text-primary font-bold">Agent-Bastion Execution Engine</div>
                           <div>Session ID: {activeJobId}</div>
-                          <div>Target URL: {form.getValues('target_url') || 'N/A'}</div>
+                          <div>Target URL: {form.getValues('target_url') || 'Not Specified'}</div>
                           <div className="mt-2 border-b border-zinc-800 pb-2"></div>
                         </div>
                         
@@ -577,7 +585,7 @@ abs run \\
                           if (isSecurity) textColor = 'text-emerald-400';
 
                           return (
-                            <div key={i} className={\`flex items-start gap-3 hover:bg-zinc-900/30 px-1 -mx-1 py-1 rounded transition-colors \${textColor}\`}>
+                            <div key={i} className={`flex items-start gap-3 hover:bg-zinc-900/30 px-1 -mx-1 py-1 rounded transition-colors ${textColor}`}>
                               <span className="text-zinc-600 shrink-0">[{new Date(event.timestamp).toLocaleTimeString()}]</span>
                               <span className="break-all">{event.message}</span>
                             </div>

@@ -155,6 +155,31 @@ Agent-Bastion v2.0 includes extensible adapter interfaces (`src/agent_bastion/ad
 
 ---
 
+## 🚀 Scalability & Horizontal Scaling
+
+Agent-Bastion is designed for production deployments scaling from 10 to 50+ concurrent users with zero architectural changes. Because autonomous browser agents are resource-intensive (spawning headless Chromium), horizontal worker scaling is the recommended approach.
+
+### Docker Compose Scaling (10-50 Users)
+You can instantly scale the number of agent execution workers by using Docker Compose's `--scale` flag:
+
+```bash
+# Scale to 10 concurrent agent workers
+docker compose -f docker-compose.prod.yml up -d --scale worker-agent=10
+```
+
+*Note: Each `worker-agent` runs 1 concurrent task (`--concurrency=1`) to prevent browser memory leaks. Scaling the containers is the correct way to increase throughput.*
+
+### Enterprise Scaling (100+ Users)
+For large deployments, you should migrate the worker layer to a distributed orchestrator. The Agent-Bastion architecture (FastAPI + Celery + PostgreSQL + Redis) translates directly to:
+
+- **Kubernetes (K8s)**: Deploy `worker-agent` as a Deployment with HPA (Horizontal Pod Autoscaling) based on Celery queue length.
+- **AWS ECS / Fargate**: Run workers on demand using capacity providers.
+- **Docker Swarm / Nomad**: Distribute the worker fleet across multiple physical nodes.
+
+*No codebase changes are required for enterprise scaling—only infrastructure provisioning.*
+
+---
+
 ## 📚 Comprehensive Documentation
 
 Explore our production-grade guides in the `docs/` directory:

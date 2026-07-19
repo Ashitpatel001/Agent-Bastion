@@ -23,7 +23,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   
   React.useEffect(() => {
     if (mounted && !isAuthenticated && pathname?.startsWith('/dashboard') && !isDocs) {
-      router.push('/login');
+      router.push('/login?tab=register');
     }
   }, [mounted, isAuthenticated, pathname, router, isDocs]);
 

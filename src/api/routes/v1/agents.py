@@ -19,6 +19,17 @@ async def submit_agent_task(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Submit a new autonomous agent task with multi-tenant isolation and priority routing (Phase 4)."""
+    from api.config import settings
+    
+    # Fail fast if no LLM is configured
+    if not ((settings.PRIMARY_LLM_PROVIDER == "gemini" and settings.GEMINI_API_KEY) or
+            (settings.PRIMARY_LLM_PROVIDER == "openai" and settings.OPENAI_API_KEY) or
+            (settings.PRIMARY_LLM_PROVIDER == "groq" and settings.GROQ_API_KEY)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid LLM provider configured. Please configure an API key for Gemini, OpenAI, or Groq."
+        )
+
     # Determine target queue based on priority request or tenant tier
     queue_name = request.queue_name or "agents"
     priority = request.priority or 5

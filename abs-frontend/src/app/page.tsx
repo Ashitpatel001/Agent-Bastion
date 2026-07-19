@@ -30,11 +30,16 @@ export default function Home() {
 
           <div className="flex items-center gap-4">
             <Link href="/login" className="text-xs font-mono font-bold text-zinc-300 hover:text-white transition-colors">
-              Sign In →
+              Sign In
+            </Link>
+            <Link href="/login?tab=register">
+              <Button variant="outline" className="rounded-xl border-zinc-700 hover:bg-zinc-800 text-zinc-200 font-semibold px-4 text-xs">
+                Sign Up
+              </Button>
             </Link>
             <Link href="/dashboard/overview">
               <Button className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-semibold px-5 shadow-lg shadow-primary/20 text-xs">
-                Launch Dashboard
+                Launch Dashboard →
               </Button>
             </Link>
           </div>

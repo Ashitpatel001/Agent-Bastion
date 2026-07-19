@@ -304,54 +304,58 @@ AGENT_LLM_MODEL = settings.AGENT_LLM_MODEL
 
 
 def _build_agent_llm():
-    if settings.OPENAI_API_KEY:
+    if settings.PRIMARY_LLM_PROVIDER == "openai" and settings.OPENAI_API_KEY:
         from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model="gpt-4o", api_key=settings.OPENAI_API_KEY)
+        llm = ChatOpenAI(model=settings.OPENAI_MODEL if hasattr(settings, "OPENAI_MODEL") else "gpt-4o", api_key=settings.OPENAI_API_KEY)
         object.__setattr__(llm, "provider", "openai")
         return llm
     
-    if settings.GEMINI_API_KEY:
+    if settings.PRIMARY_LLM_PROVIDER == "gemini" and settings.GEMINI_API_KEY:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=settings.GEMINI_API_KEY)
+        llm = ChatGoogleGenerativeAI(model=settings.AGENT_LLM_MODEL, google_api_key=settings.GEMINI_API_KEY)
         object.__setattr__(llm, "provider", "google")
         return llm
 
-    from langchain_groq import ChatGroq
-    from langchain_core.language_models.chat_models import BaseChatModel
-    
-    # Ensure compatibility with browser-use checks and telemetry wrapper registrations
-    for cls in (ChatGroq, BaseChatModel):
-        if not hasattr(cls, "_browser_use_patched"):
-            orig_setattr = cls.__setattr__
-            def permissive_setattr(self, name, val):
-                try:
-                    orig_setattr(self, name, val)
-                except ValueError:
-                    object.__setattr__(self, name, val)
-            cls.__setattr__ = permissive_setattr
-            cls._browser_use_patched = True
+    if settings.PRIMARY_LLM_PROVIDER == "groq" and settings.GROQ_API_KEY:
+        from langchain_groq import ChatGroq
+        from langchain_core.language_models.chat_models import BaseChatModel
+        
+        # Ensure compatibility with browser-use checks and telemetry wrapper registrations
+        for cls in (ChatGroq, BaseChatModel):
+            if not hasattr(cls, "_browser_use_patched"):
+                orig_setattr = cls.__setattr__
+                def permissive_setattr(self, name, val):
+                    try:
+                        orig_setattr(self, name, val)
+                    except ValueError:
+                        object.__setattr__(self, name, val)
+                cls.__setattr__ = permissive_setattr
+                cls._browser_use_patched = True
 
-    if not hasattr(ChatGroq, "provider"):
-        ChatGroq.provider = "groq"
+        if not hasattr(ChatGroq, "provider"):
+            ChatGroq.provider = "groq"
 
-    llm = ChatGroq(
-        model=AGENT_LLM_MODEL,
-        api_key=settings.GROQ_API_KEY,
-    )
-    object.__setattr__(llm, "provider", "groq")
-    return llm
+        llm = ChatGroq(
+            model=settings.AGENT_LLM_MODEL,
+            api_key=settings.GROQ_API_KEY,
+        )
+        object.__setattr__(llm, "provider", "groq")
+        return llm
+
+    # If no provider is configured, we must raise an explicit exception
+    raise ValueError("No valid LLM provider configured! Please set GEMINI_API_KEY, OPENAI_API_KEY, or GROQ_API_KEY in your .env file.")
 
 # Celery Tasks
 
 @shared_task(
     bind=True,
     name="workers.agent_tasks.run_agent_task",
-    max_retries=3,
+    max_retries=settings.MAX_RETRIES,
     default_retry_delay=15,
     acks_late=True,
     queue="agents",
-    soft_time_limit=300,        # 5 min soft limit
-    time_limit=360,             # 6 min hard kill
+    soft_time_limit=settings.MAX_BROWSER_RUNTIME_SECONDS,
+    time_limit=settings.WORKER_TIMEOUT_SECONDS,
 )
 def run_agent_task(
     self,

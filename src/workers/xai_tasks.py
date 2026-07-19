@@ -195,24 +195,24 @@ async def _generate_explanation_llm(payload: Dict[str, Any]) -> str:
     )
 
     # Fallback if no API key
-    if not GROQ_API_KEY:
-        logger.warning("GROQ_API_KEY not set - using template fallback.")
+    llm = None
+    if settings.PRIMARY_LLM_PROVIDER == "openai" and settings.OPENAI_API_KEY:
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model=settings.OPENAI_MODEL if hasattr(settings, "OPENAI_MODEL") else "gpt-4o", api_key=settings.OPENAI_API_KEY, temperature=0.3)
+    elif settings.PRIMARY_LLM_PROVIDER == "gemini" and settings.GEMINI_API_KEY:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(model=settings.XAI_MODEL, google_api_key=settings.GEMINI_API_KEY, temperature=0.3)
+    elif settings.PRIMARY_LLM_PROVIDER == "groq" and settings.GROQ_API_KEY:
+        from langchain_groq import ChatGroq
+        llm = ChatGroq(model=settings.XAI_MODEL, api_key=settings.GROQ_API_KEY, temperature=0.3)
+
+    if not llm:
+        logger.warning("No valid LLM configuration found for XAI - using template fallback.")
         return _template_fallback(payload)
 
     try:
-        from langchain_groq import ChatGroq
         from langchain_core.messages import HumanMessage
-
-        llm = ChatGroq(
-            model=XAI_MODEL,
-            api_key=GROQ_API_KEY,
-            temperature=0.3,
-        )
-
-        response = await llm.ainvoke(
-            [HumanMessage(content=xai_prompt)]
-        )
-
+        response = await llm.ainvoke([HumanMessage(content=xai_prompt)])
         explanation = response.content.strip()
 
         if not explanation:
@@ -221,7 +221,7 @@ async def _generate_explanation_llm(payload: Dict[str, Any]) -> str:
         return explanation
 
     except Exception as exc:
-        logger.exception("Groq XAI generation failed: %s", exc)
+        logger.exception("XAI generation failed: %s", exc)
         return _template_fallback(payload)
 
 # Celery Tasks

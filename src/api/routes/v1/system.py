@@ -66,6 +66,35 @@ async def system_health():
     return health
 
 
+@router.get("/llm-status")
+async def get_llm_status():
+    """Check the status of configured LLM providers (Phase 8 Task 1)."""
+    from api.config import settings
+    
+    return {
+        "primary_provider": settings.PRIMARY_LLM_PROVIDER,
+        "providers": {
+            "gemini": {
+                "configured": bool(settings.GEMINI_API_KEY),
+                "model": settings.AGENT_LLM_MODEL if settings.PRIMARY_LLM_PROVIDER == "gemini" else "gemini-2.5-flash"
+            },
+            "openai": {
+                "configured": bool(settings.OPENAI_API_KEY),
+                "model": getattr(settings, "OPENAI_MODEL", "gpt-4o")
+            },
+            "groq": {
+                "configured": bool(settings.GROQ_API_KEY),
+                "model": "llama-3.3-70b-versatile"
+            }
+        },
+        "ready": bool(
+            (settings.PRIMARY_LLM_PROVIDER == "gemini" and settings.GEMINI_API_KEY) or
+            (settings.PRIMARY_LLM_PROVIDER == "openai" and settings.OPENAI_API_KEY) or
+            (settings.PRIMARY_LLM_PROVIDER == "groq" and settings.GROQ_API_KEY)
+        )
+    }
+
+
 @router.get("/infrastructure")
 @router.get("/infrastructure/status")
 async def get_infrastructure_status():
